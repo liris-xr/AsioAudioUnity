@@ -14,12 +14,21 @@ The final idea of this package is to simulate the behaviour of Unity Audio Sourc
 - Modifying the standard Unity audio output, and using the ASIO driver type to send audio data instead.
 
 The idea behind is to use [REAPER](https://www.reaper.fm/) and [Spat Revolution](https://www.flux.audio/project/spat-revolution/) softwares to simulate Audio Sources on any output configuration.
+
 REAPER will be used to get audio data using the ReaRoute ASIO driver and send the data to Spat Revolution.
+
 Source positions will directly be sent using OSC to Spat Revolution.
 
 
-![alt text](/docs/workflow.jpg)
-
+```mermaid
+graph LR
+A[Unity] -- ASIO Channel 1 --> B[REAPER]
+A -- ASIO Channel 2 --> B
+A -- ASIO Channel 3 --> B
+A -- ... --> B
+B -- Audio Tunnel --> C{Spat Revolution}
+A -- OSC --> C
+```
 
 ## Getting started
 
@@ -30,6 +39,11 @@ Download REAPER [here](https://www.reaper.fm/download.php).
 > **Warning:** When installing, you will need to add the ReaRoute ASIO driver (which is not selected by default), otherwise you will not be able to retrieve ASIO data on REAPER.
 
 Download Flux Center (for Spat Revolution) [here](https://www.flux.audio/download/). 
+
+In REAPER, set 4 empty tracks (using shortcut Ctrl+T) and arm the record clicking the ![alt Text]("docs/record.png) button.
+
+It should look like this:
+![alt Text]("docs/reapertracks.jpg)
 
 
 
