@@ -86,11 +86,18 @@ namespace AsioAudioUnity
             set { _referencedAsioAudioManager = value; }
         }
 
-        [SerializeField] private bool _playOnInitialize = true;
-        public bool PlayOnInitialize
+        [SerializeField] private bool _playOnAwake = true;
+        public bool PlayOnAwake
         {
-            get { return _playOnInitialize; }
-            set { _playOnInitialize = value; }
+            get { return _playOnAwake; }
+            set { _playOnAwake = value; }
+        }
+
+        [SerializeField] private bool _loop = false;
+        public bool Loop
+        {
+            get { return _loop; }
+            set { _loop = value; }
         }
 
         [SerializeField][ReadOnly] private int _channels;
@@ -135,6 +142,13 @@ namespace AsioAudioUnity
             private set { _extraSize = value; }
         }
 
+        [SerializeField][ReadOnly] private float _audioFileTotalLength;
+        public float AudioFileTotalLength
+        {
+            get { return _audioFileTotalLength; }
+            private set { _audioFileTotalLength = value; }
+        }
+
         private ISampleProvider _sourceSampleProvider;
         public ISampleProvider SourceSampleProvider
         {
@@ -149,11 +163,11 @@ namespace AsioAudioUnity
             private set { _audioStatus = value; }
         }
 
-        private float _timeWhenUpdated = 0;
-        public float TimeWhenUpdated
+        [SerializeField][ReadOnly] private float _actualTimestamp = 0;
+        public float ActualTimestamp
         {
-            get { return _timeWhenUpdated; }
-            set { _timeWhenUpdated = value; }
+            get { return _actualTimestamp; }
+            set { _actualTimestamp = value; }
         }
 
         [SerializeField] private UnityEvent _onPlay = new UnityEvent();
@@ -177,17 +191,12 @@ namespace AsioAudioUnity
             set { _onPause = value; }
         }
 
-        private void Awake()
-        {
-
-        }
-
         /// <summary>
         /// Setup the ASIO Audio Source with the audio file specified in the Audio File Name field.
         /// </summary>
         /// <param name="convertToMono">Convert the audio file to mono if it has more than one channel.</param>
         /// <param name="convertSampleRateToNewFile">Convert the audio file to the target sample rate specified in the ASIO Audio Manager to a new file.</param>
-        public void InitializeAudioSource(bool convertSampleRateToNewFile = false, bool convertToMono = false)
+        public void GetAudioSamplesFromFileName(bool convertSampleRateToNewFile = false, bool getAudioFileLength= false, bool convertToMono = false)
         {
             if (string.IsNullOrEmpty(AudioFilePath))
             {
@@ -195,32 +204,33 @@ namespace AsioAudioUnity
                 return;
             }
 
-            Debug.Log("Audio File selected : " + AudioFilePath);
-
             SourceSampleProvider = new AudioFileReader(AudioFilePath);
-
+            
             if (convertSampleRateToNewFile)
             {
                 if (ReferencedAsioAudioManager) ConvertToTargetedSampleRate(ReferencedAsioAudioManager.TargetSampleRate);
                 else Debug.LogWarning("The argument convertSampleRate is set to true, but the ASIO Audio Manager is not referenced. The sample rate will not be converted.");
             }
-            if (convertToMono)
-            {
-                if (SourceSampleProvider.WaveFormat.Channels != 1) ConvertToMono();
-                else Debug.LogWarning("The argument convertToMono is set to true, but the audio file is already mono. No conversion needed.");
-            }
+
+            if (getAudioFileLength) GetAudioFileTotalLength();
+
+            if (convertToMono) ConvertToMono();
 
             GetWaveFormatProperties();
         }
 
         /// <summary>
-        /// Convert the audio file (using AudioFilePath property) to the target sample rate specified in argument.
+        /// Convert audio samples to the target sample rate specified in argument, and store them in a new audio file.
         /// </summary>
         /// <param name="sampleRate">The targeted sample rate.</param>
         /// <exception cref="TargetParameterCountException"></exception>
         public void ConvertToTargetedSampleRate(int sampleRate)
         {
-            if(AudioFilePath == null)
+            if(SourceSampleProvider == null)
+            {
+                throw new NullReferenceException("The audio samples are not set.");
+            }
+            if (AudioFilePath == null)
             {
                 throw new DirectoryNotFoundException("The audio file path is not set.");
             }
@@ -248,9 +258,17 @@ namespace AsioAudioUnity
             SourceSampleProvider = new AudioFileReader(AudioFilePath);
         }
 
-        public void ConvertToMono()
+        /// <summary>
+        /// Convert audio samples to be mixed into one channel (only works for stereo samples).
+        /// </summary>
+        private void ConvertToMono()
         {
-            if (SourceSampleProvider.WaveFormat.Channels != 1)
+            if (SourceSampleProvider == null)
+            {
+                throw new NullReferenceException("The audio samples are not set.");
+            }
+
+            if (SourceSampleProvider.WaveFormat.Channels == 2)
             {
                 SourceSampleProvider = SourceSampleProvider.ToMono();
             }
@@ -258,6 +276,11 @@ namespace AsioAudioUnity
 
         private void GetWaveFormatProperties()
         {
+            if (SourceSampleProvider == null)
+            {
+                throw new NullReferenceException("The audio samples are not set.");
+            }
+
             Channels = SourceSampleProvider.WaveFormat.Channels;
             SampleRate = SourceSampleProvider.WaveFormat.SampleRate;
             AverageBytesPerSecond = SourceSampleProvider.WaveFormat.AverageBytesPerSecond;
@@ -265,8 +288,23 @@ namespace AsioAudioUnity
             BitsPerSample = SourceSampleProvider.WaveFormat.BitsPerSample;
             ExtraSize = SourceSampleProvider.WaveFormat.ExtraSize;
         }
+
+        private void GetAudioFileTotalLength()
+        {
+            if (SourceSampleProvider == null)
+            {
+                throw new NullReferenceException("The audio samples are not set.");
+            }
+            if (SourceSampleProvider.GetType() != typeof(AudioFileReader))
+            {
+                throw new InvalidCastException("The audio samples are not from an AudioFileReader.");
+            }
+
+            AudioFileTotalLength = (float)((AudioFileReader)SourceSampleProvider).TotalTime.TotalSeconds;
+        }
+
         /// <summary>
-        /// Will send a signal to the ASIO Audio Manager to start playing the audio file, through UnityEvent OnPlay.
+        /// Will send a signal to the referenced ASIO Audio Manager to start playing the audio file, and triggers OnPlay.
         /// </summary>
         public void Play()
         {
@@ -282,15 +320,15 @@ namespace AsioAudioUnity
             }
             ReferencedAsioAudioManager.AsioOutPlayer.Stop();
             ReferencedAsioAudioManager.AsioOutPlayer.Dispose();
-            ReferencedAsioAudioManager.SetAsioAudioSourcesStatusWithRequest(this, AsioAudioRequest.Play);
+            ReferencedAsioAudioManager.RedefineAllSamplesAsioAudioSourcesWithRequest(this, AsioAudioRequest.Play);
             AudioStatus = AsioAudioStatus.Playing;
 
-            ReferencedAsioAudioManager.ConnectToAsioAndPlay();
+            ReferencedAsioAudioManager.ConnectToAsioMixAndPlay();
             OnPlay.Invoke();
         }
 
         /// <summary>
-        /// Will send a signal to the ASIO Audio Manager to stop playing the audio file, through UnityEvent OnStop.
+        /// Will send a signal to the referenced ASIO Audio Manager to stop playing the audio file, and triggers OnStop.
         /// </summary>
         public void Stop()
         {
@@ -306,15 +344,15 @@ namespace AsioAudioUnity
             }
             ReferencedAsioAudioManager.AsioOutPlayer.Stop();
             ReferencedAsioAudioManager.AsioOutPlayer.Dispose();
-            ReferencedAsioAudioManager.SetAsioAudioSourcesStatusWithRequest(this, AsioAudioRequest.Stop);
+            ReferencedAsioAudioManager.RedefineAllSamplesAsioAudioSourcesWithRequest(this, AsioAudioRequest.Stop);
             AudioStatus = AsioAudioStatus.Stopped;
 
-            ReferencedAsioAudioManager.ConnectToAsioAndPlay();
+            ReferencedAsioAudioManager.ConnectToAsioMixAndPlay();
             OnStop.Invoke();
         }
 
         /// <summary>
-        /// Will send a signal to the ASIO Audio Manager to stop playing the audio file, through UnityEvent OnStop.
+        /// Will send a signal to the referenced ASIO Audio Manager to pause the current audio file, and triggers OnPause.
         /// </summary>
         public void Pause()
         {
@@ -330,11 +368,32 @@ namespace AsioAudioUnity
             }
             ReferencedAsioAudioManager.AsioOutPlayer.Stop();
             ReferencedAsioAudioManager.AsioOutPlayer.Dispose();
-            ReferencedAsioAudioManager.SetAsioAudioSourcesStatusWithRequest(this, AsioAudioRequest.Pause);
+            ReferencedAsioAudioManager.RedefineAllSamplesAsioAudioSourcesWithRequest(this, AsioAudioRequest.Pause);
             AudioStatus = AsioAudioStatus.Paused;
 
-            ReferencedAsioAudioManager.ConnectToAsioAndPlay();
+            ReferencedAsioAudioManager.ConnectToAsioMixAndPlay();
             OnPause.Invoke();
+        }
+
+
+        public void StopAndPlay()
+        {
+            if (ReferencedAsioAudioManager == null)
+            {
+                Debug.LogError("Can't loop the file, because the referenced ASIO Audio Manager from this source (" + gameObject.name + ") is not set.");
+                return;
+            }
+            if (ReferencedAsioAudioManager.AsioOutPlayer == null)
+            {
+                Debug.LogError("Can't loop the file, because the ASIO driver from the referenced ASIO Audio Manager from this source (" + gameObject.name + ") is not set.");
+                return;
+            }
+            ReferencedAsioAudioManager.AsioOutPlayer.Stop();
+            ReferencedAsioAudioManager.AsioOutPlayer.Dispose();
+            ReferencedAsioAudioManager.RedefineAllSamplesAsioAudioSourcesWithRequest(this, AsioAudioRequest.Stop);
+            AudioStatus = AsioAudioStatus.Playing;
+
+            ReferencedAsioAudioManager.ConnectToAsioMixAndPlay();
         }
     }
 }
