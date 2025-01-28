@@ -9,8 +9,6 @@ namespace AsioAudioUnity
 {
     public class AsioAudioManager : MonoBehaviour
     {
-        public static AsioAudioManager Instance { get; private set; }
-
         [SerializeField] private string _asioDriverName;
         public string AsioDriverName
         {
@@ -66,7 +64,6 @@ namespace AsioAudioUnity
 
         private void Awake()
         {
-            if (Instance == null) Instance = this;
             AsioOutPlayer = ConnectToAsioDriver(AsioDriverName);
             GetAllValidAsioAudioSources();
             GetAllSamplesAsioAudioSources();

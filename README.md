@@ -84,11 +84,11 @@ Open Flux Center and download Spat Revolution, the installation should be done a
 
 - **For audio data:** Go to IO Hardware, set the output device, and configure the sample rate and the block size so it matches the available properties of the device. The two properties must also match the properties set in REAPER about the Dummy Audio device, to avoid any unwanted audio artifact.
 
-<img src="/docs/spatio.png" alt="drawing" width="400"/> <img src="/docs/reaperdummy.png" alt="drawing" width="400"/>
+<img src="/docs/spatio.PNG" alt="drawing" width="400"/> <img src="/docs/reaperdummy.png" alt="drawing" width="400"/>
 
 -  **For audio source position:** Go to OSC Main, and be sure that OSC is enabled by ticking the first button. Then, on OSC Connections, add a new connection: `input | Spat Revolution - Plugins`, and set up the IP address to localhost (127.0.0.1), and the port 8100.
 
-<img src="/docs/spatosc.png" alt="drawing" width="400"/> <img src="/docs/spatoscip.png" alt="drawing" width="400"/>
+<img src="/docs/spatosc.PNG" alt="drawing" width="400"/> <img src="/docs/spatoscip.PNG" alt="drawing" width="400"/>
 
 - Once done, go to the Setup tab, and you should already see 4 inputs on the Input line, corresponding to the 4 tracks set on REAPER.
 	>If you don't see them, refer to the [REAPER](#reaper) section to set them up.
@@ -100,7 +100,7 @@ Open Flux Center and download Spat Revolution, the installation should be done a
 	- Finally, add an output on the Output line.
 - Connect them as follows:
 
-<img src="/docs/spatconfig.png" alt="drawing" width="800"/>
+<img src="/docs/spatconfig.PNG" alt="drawing" width="800"/>
 
 You can see on the Room tab the final configuration of the room and sources.
 
