@@ -5,6 +5,7 @@ using UnityEngine;
 using UnityEngine.Events;
 using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
+using System.Diagnostics;
 
 namespace AsioAudioUnity
 {
@@ -115,6 +116,13 @@ namespace AsioAudioUnity
             private set { _actualTimestamp = value; }
         }
 
+        private Stopwatch _internalStopwatch = new Stopwatch();
+        public Stopwatch InternalStopwatch
+        {
+            get { return _internalStopwatch; }
+            private set { _internalStopwatch = value; }
+        }
+
         [SerializeField] private UnityEvent _onPlay = new UnityEvent();
         public UnityEvent OnPlay
         {
@@ -136,7 +144,8 @@ namespace AsioAudioUnity
             set { _onPause = value; }
         }
 
-        public void Update()
+
+        private void Update()
         {
             UpdateTimestamp();
             CheckForAudioEnd();
@@ -144,18 +153,16 @@ namespace AsioAudioUnity
 
         private void UpdateTimestamp()
         {
-            if (ReferencedAsioAudioManager != null && AudioStatus == AsioAudioStatus.Playing) ActualTimestamp += (TimeSpan.FromSeconds(Time.deltaTime).TotalSeconds);
+            if (ReferencedAsioAudioManager != null && AudioStatus == AsioAudioStatus.Playing) ActualTimestamp = InternalStopwatch.Elapsed.TotalSeconds;
         }
 
         private void CheckForAudioEnd()
         {
-
             if (ActualTimestamp >= AudioFileTotalLength)
             {
-                if (Loop) StopAndPlay();
+                if (Loop) Restart();
                 else Stop();
             }
-
         }
 
         /// <summary>
@@ -168,7 +175,7 @@ namespace AsioAudioUnity
         {
             if (string.IsNullOrEmpty(AudioFilePath))
             {
-                Debug.LogError("The ASIO Audio Source attached to GameObject \"" + gameObject.name + "\" doesn't have any Audio File Name specified. It will be ignored.");
+                UnityEngine.Debug.LogError("The ASIO Audio Source attached to GameObject \"" + gameObject.name + "\" doesn't have any Audio File Name specified. It will be ignored.");
                 return;
             }
 
@@ -177,7 +184,7 @@ namespace AsioAudioUnity
             if (convertSampleRateToNewFile)
             {
                 if (ReferencedAsioAudioManager) ConvertToTargetedSampleRate(ReferencedAsioAudioManager.TargetSampleRate);
-                else Debug.LogWarning("The argument convertSampleRate is set to true, but the ASIO Audio Manager is not referenced. The sample rate will not be converted.");
+                else UnityEngine.Debug.LogWarning("The argument convertSampleRate is set to true, but the ASIO Audio Manager is not referenced. The sample rate will not be converted.");
             }
 
             if (getAudioFileLength) GetAudioFileTotalLength();
@@ -203,14 +210,14 @@ namespace AsioAudioUnity
             }
             if (sampleRate == SourceSampleProvider.WaveFormat.SampleRate)
             {
-                Debug.LogWarning("The sample rate of the file is already " + sampleRate + " Hz. No conversion needed.");
+                UnityEngine.Debug.LogWarning("The sample rate of the file is already " + sampleRate + " Hz. No conversion needed.");
                 return;
             }
 
             string audioFilePathConverted = Path.GetDirectoryName(AudioFilePath) + "\\" + Path.GetFileNameWithoutExtension(AudioFilePath) + "_" + sampleRate + Path.GetExtension(AudioFilePath);
             if (File.Exists(audioFilePathConverted))
             {
-                Debug.LogWarning("The converted file " + audioFilePathConverted + " seems to already exist. This file will be selected instead without sample rate conversion applied.");
+                UnityEngine.Debug.LogWarning("The converted file " + audioFilePathConverted + " seems to already exist. This file will be selected instead without sample rate conversion applied.");
                 if (new AudioFileReader(audioFilePathConverted).WaveFormat.SampleRate != sampleRate)
                 {
                     throw new TargetParameterCountException("The sample rate of the existing file is not the same as the target sample rate.");
@@ -272,6 +279,7 @@ namespace AsioAudioUnity
         /// </summary>
         public void Play()
         {
+            InternalStopwatch.Start();
             SendRequestAndReset(AsioAudioStatus.Playing);
             OnPlay.Invoke();
         }
@@ -282,6 +290,7 @@ namespace AsioAudioUnity
         public void Stop()
         {
             ActualTimestamp = 0;
+            InternalStopwatch.Reset();
             SendRequestAndReset(AsioAudioStatus.Stopped);
             OnStop.Invoke();
         }
@@ -291,16 +300,18 @@ namespace AsioAudioUnity
         /// </summary>
         public void Pause()
         {
+            InternalStopwatch.Stop();
             SendRequestAndReset(AsioAudioStatus.Paused);
             OnPause.Invoke();
         }
 
         /// <summary>
-        /// Will send a signal to the referenced ASIO Audio Manager to stop and play the current audio file. (This function is used for loops).
+        /// Will send a signal to the referenced ASIO Audio Manager to restart the current audio file. (This function is used for loops, and will not trigger events).
         /// </summary>
-        public void StopAndPlay()
+        public void Restart()
         {
             ActualTimestamp = 0;
+            InternalStopwatch.Restart();
             SendRequestAndReset(AsioAudioStatus.Playing);
         }
 
@@ -308,12 +319,12 @@ namespace AsioAudioUnity
         {
             if (ReferencedAsioAudioManager == null)
             {
-                Debug.LogError("Can't update status " + newAsioAudioStatus + ", because the referenced ASIO Audio Manager from this source (" + gameObject.name + ") is not set.");
+                UnityEngine.Debug.LogError("Can't update status " + newAsioAudioStatus + ", because the referenced ASIO Audio Manager from this source (" + gameObject.name + ") is not set.");
                 return;
             }
             if (ReferencedAsioAudioManager.AsioOutPlayer == null)
             {
-                Debug.LogError("Can't update status " + newAsioAudioStatus + ", because the ASIO driver from the referenced ASIO Audio Manager from this source (" + gameObject.name + ") is not set.");
+                UnityEngine.Debug.LogError("Can't update status " + newAsioAudioStatus + ", because the ASIO driver from the referenced ASIO Audio Manager from this source (" + gameObject.name + ") is not set.");
                 return;
             }
 
