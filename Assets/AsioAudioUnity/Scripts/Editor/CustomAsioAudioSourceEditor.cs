@@ -18,31 +18,41 @@ namespace AsioAudioUnity
             Rect dropArea = GUILayoutUtility.GetRect(0f, 50f, GUILayout.ExpandWidth(true));
             GUI.Box(dropArea, "Put an audio file here");
 
-            // Check if a file has been dropped in this area
-            if (dropArea.Contains(Event.current.mousePosition) && Event.current.type == EventType.DragUpdated)
+
+            if (dropArea.Contains(Event.current.mousePosition) && DragAndDrop.paths.Length > 0)
             {
-                DragAndDrop.AcceptDrag();
-                Event.current.Use();
+                // Check if a file has been dropped in this area
+                if (Event.current.type == EventType.DragUpdated)
+                {
+                    DragAndDrop.AcceptDrag();
+                    Event.current.Use();
+
+
+                    string filePath = DragAndDrop.paths[0];
+                    if (IsAudioFile(filePath)) DragAndDrop.visualMode = DragAndDropVisualMode.Generic;
+                }
+
+                if (Event.current.type == EventType.DragExited)
+                {
+                    string filePath = DragAndDrop.paths[0];
+
+                    // Check that the file is indeed an audio file
+                    if (IsAudioFile(filePath))
+                    {
+                        string fileName = Path.GetFileName(filePath); // File name
+                        string fileExtension = Path.GetExtension(filePath); // File extension
+                        myScript.AudioFilePath = filePath; // Store the full path in the script
+                        Debug.Log("File name: " + fileName);
+                        Debug.Log("File extension: " + fileExtension);
+                    }
+                    else
+                    {
+                        Debug.LogWarning("This file is not a valid audio file.");
+                    }
+                }
             }
 
-            if (DragAndDrop.paths.Length > 0)
-            {
-                string filePath = DragAndDrop.paths[0];
-
-                // Check that the file is indeed an audio file
-                if (IsAudioFile(filePath))
-                {
-                    string fileName = Path.GetFileName(filePath); // File name
-                    string fileExtension = Path.GetExtension(filePath); // File extension
-                    myScript.AudioFilePath = filePath; // Store the full path in the script
-                    Debug.Log("File name: " + fileName);
-                    Debug.Log("File extension: " + fileExtension);
-                }
-                else
-                {
-                    Debug.LogWarning("This file is not a valid audio file.");
-                }
-            }
+            
 
             // Display the usual inspector
             DrawDefaultInspector();
