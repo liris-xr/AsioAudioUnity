@@ -13,7 +13,7 @@ public abstract class ObjectPositionOsc : MonoBehaviour
 
     public abstract string OscObject { get; }
 
-    public abstract int Index { get; }
+    public abstract int Index { get; set; }
 
     public void SendPositionOsc()
     {

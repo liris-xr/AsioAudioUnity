@@ -5,6 +5,10 @@ public class SourcePositionOsc : ObjectPositionOsc
 {
     override public string OscObject => "source";
 
-    [SerializeField] private int sourceIndex;
-    override public int Index => sourceIndex;
+    [SerializeField] private int _sourceIndex;
+    override public int Index
+    {
+        get { return _sourceIndex; }
+        set { _sourceIndex = value; }
+    }
 }

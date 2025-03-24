@@ -256,7 +256,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   _osc: {fileID: 722059485}
-  sourceIndex: 2
+  _sourceIndex: 2
 --- !u!114 &722059485 stripped
 MonoBehaviour:
   m_CorrespondingSourceObject: {fileID: 4927713742000417006, guid: af697410cc072304b91ca220bd3c8dbb, type: 3}
@@ -363,7 +363,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   _osc: {fileID: 722059485}
-  sourceIndex: 1
+  _sourceIndex: 1
 --- !u!1 &963194225
 GameObject:
   m_ObjectHideFlags: 0
@@ -461,7 +461,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   _osc: {fileID: 722059485}
-  roomIndex: 1
+  _roomIndex: 0
 --- !u!1001 &1000769465
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -557,7 +557,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   _osc: {fileID: 722059485}
-  sourceIndex: 3
+  _sourceIndex: 3
 --- !u!1001 &1497044541
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -653,7 +653,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   _osc: {fileID: 722059485}
-  sourceIndex: 4
+  _sourceIndex: 4
 --- !u!4 &1518196241 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 6759722502631067110, guid: d22a6b099d820ae4484e304c047c041c, type: 3}

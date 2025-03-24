@@ -11,7 +11,7 @@ GameObject:
   - component: {fileID: 8726834292612044583}
   - component: {fileID: 4506823474915088300}
   m_Layer: 0
-  m_Name: AsioAudioSource
+  m_Name: Custom ASIO Audio Source
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -44,17 +44,20 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e1c4236f05c73c142a1fe4fe48839515, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _audiofilePath: 
+  _audioFilePath: 
   _targetOutputChannel: 1
   _referencedAsioAudioManager: {fileID: 0}
-  _playOnInitialize: 0
+  _playOnAwake: 1
+  _loop: 0
   _channels: 0
   _sampleRate: 0
   _averageBytesPerSecond: 0
   _blockAlign: 0
   _bitsPerSample: 0
   _extraSize: 0
+  _audioFileTotalLength: 0
   _audioStatus: 0
+  _actualTimestamp: 0
   _onPlay:
     m_PersistentCalls:
       m_Calls: []
