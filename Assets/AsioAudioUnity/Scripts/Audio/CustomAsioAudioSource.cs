@@ -9,13 +9,22 @@ using System.Diagnostics;
 
 namespace AsioAudioUnity
 {
+    [System.Serializable]
     public class CustomAsioAudioSource : MonoBehaviour
     {
-        [SerializeField] private string _audiofilePath;
+        private UnityEvent OnAudioFilePathChanged = new UnityEvent();
+
+        [SerializeField] private string _audioFilePath;
         public string AudioFilePath
         {
-            get { return _audiofilePath; }
-            set { _audiofilePath = value; }
+            get { return _audioFilePath; }
+            set
+            { 
+                if (value == _audioFilePath) return;
+                _audioFilePath = value;
+                if (OnAudioFilePathChanged != null)
+                    OnAudioFilePathChanged.Invoke();
+            }
         }
 
         [SerializeField] private int _targetOutputChannel = 0;
@@ -144,6 +153,14 @@ namespace AsioAudioUnity
             set { _onPause = value; }
         }
 
+        private void Start()
+        {
+            OnAudioFilePathChanged.AddListener(() =>
+            {
+                GetAudioSamplesFromFileName(true, true, true);
+                if (AudioStatus == AsioAudioStatus.Playing || AudioStatus == AsioAudioStatus.Paused) Stop();
+            });
+        }
 
         private void Update()
         {
