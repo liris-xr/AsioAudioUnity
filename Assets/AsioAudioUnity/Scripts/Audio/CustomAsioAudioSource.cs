@@ -12,18 +12,22 @@ namespace AsioAudioUnity
     [System.Serializable]
     public class CustomAsioAudioSource : MonoBehaviour
     {
-        private UnityEvent OnAudioFilePathChanged = new UnityEvent();
+        private UnityEvent _onParameterChanged = new UnityEvent();
+        private UnityEvent OnParameterChanged
+        {
+            get { return _onParameterChanged; }
+            set { _onParameterChanged = value; }
+        }
 
         [SerializeField] private string _audioFilePath;
         public string AudioFilePath
         {
             get { return _audioFilePath; }
             set
-            { 
+            {
                 if (value == _audioFilePath) return;
                 _audioFilePath = value;
-                if (OnAudioFilePathChanged != null)
-                    OnAudioFilePathChanged.Invoke();
+                if (OnParameterChanged != null) OnParameterChanged.Invoke();
             }
         }
 
@@ -31,14 +35,24 @@ namespace AsioAudioUnity
         public int TargetOutputChannel
         {
             get { return _targetOutputChannel; }
-            set { _targetOutputChannel = value; }
+            set
+            {
+                if (value == _targetOutputChannel) return;
+                _targetOutputChannel = value;
+                if (OnParameterChanged != null) OnParameterChanged.Invoke(); 
+            }
         }
 
         [SerializeField] private AsioAudioManager _referencedAsioAudioManager;
         public AsioAudioManager ReferencedAsioAudioManager
         {
             get { return _referencedAsioAudioManager; }
-            set { _referencedAsioAudioManager = value; }
+            set
+            {
+                if (value == _referencedAsioAudioManager) return;
+                _referencedAsioAudioManager = value;
+                if (OnParameterChanged != null) OnParameterChanged.Invoke();
+            }
         }
 
         [SerializeField] private bool _playOnAwake = true;
@@ -155,15 +169,25 @@ namespace AsioAudioUnity
 
         private void Start()
         {
-            OnAudioFilePathChanged.AddListener(() =>
+            OnParameterChanged.AddListener(() =>
             {
-                GetAudioSamplesFromFileName(true, true, true);
-                if (AudioStatus == AsioAudioStatus.Playing || AudioStatus == AsioAudioStatus.Paused) Stop();
+                if (!ReferencedAsioAudioManager)
+                {
+                    AsioAudioManager asioAudioManager = FindFirstObjectByType<AsioAudioManager>();
+                    if (asioAudioManager != null && asioAudioManager.RequestValidationAsioAudioSource(this)) GetAudioSamplesFromFileName(true, true, true);
+                }
+                else
+                {
+                    if (AudioStatus == AsioAudioStatus.Playing || AudioStatus == AsioAudioStatus.Paused) Stop();
+                    if (ReferencedAsioAudioManager.RequestValidationAsioAudioSource(this)) GetAudioSamplesFromFileName(true, true, true);
+                }
             });
         }
 
         private void Update()
         {
+            if (!ReferencedAsioAudioManager) return;
+
             UpdateTimestamp();
             CheckForAudioEnd();
         }
@@ -201,7 +225,7 @@ namespace AsioAudioUnity
             if (convertSampleRateToNewFile)
             {
                 if (ReferencedAsioAudioManager) ConvertToTargetedSampleRate(ReferencedAsioAudioManager.TargetSampleRate);
-                else UnityEngine.Debug.LogWarning("The argument convertSampleRate is set to true, but the ASIO Audio Manager is not referenced. The sample rate will not be converted.");
+                else UnityEngine.Debug.LogWarning("The argument convertSampleRate is set to true, but the ASIO Audio Manager (where the TargetSampleRate property is defined) is not referenced. The sample rate will not be converted.");
             }
 
             if (getAudioFileLength) GetAudioFileTotalLength();
@@ -317,6 +341,7 @@ namespace AsioAudioUnity
         /// </summary>
         public void Pause()
         {
+            if (AudioStatus == AsioAudioStatus.Stopped) return;
             InternalStopwatch.Stop();
             SendRequestAndReset(AsioAudioStatus.Paused);
             OnPause.Invoke();

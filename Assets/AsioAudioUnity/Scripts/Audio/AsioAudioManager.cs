@@ -4,6 +4,10 @@ using System.Linq;
 using UnityEngine;
 using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
+using System.Security.AccessControl;
+using System.Data;
+using static UnityEngine.Windows.WebCam.VideoCapture;
+using System.IO;
 
 namespace AsioAudioUnity
 {
@@ -41,6 +45,16 @@ namespace AsioAudioUnity
             private set { _customAsioAudioSources = value; }
         }
 
+        [SerializeField] public bool _displayInfoOnGameWindow = true;
+        public bool DisplayInfoOnGameWindow
+        {
+            get { return _displayInfoOnGameWindow; }
+            set { _displayInfoOnGameWindow = value; }
+        }
+        private string _connectionStatusGUI = "";
+        private int _currentAsioAudioSourceGUIIndex = 0;
+        private string _currentAsioAudioSourceGUIStatus = "Stopped";
+
         private MultiplexingWaveProvider _globalMultiplexingWaveProvider;
         public MultiplexingWaveProvider GlobalMultiplexingWaveProvider
         {
@@ -62,22 +76,133 @@ namespace AsioAudioUnity
             private set { _timeSpentPlayingBetweenUpdates = value; }
         }
 
+        private void OnGUI()
+        {
+            if (!DisplayInfoOnGameWindow) return;
+
+            float horizontalOffset = 20;
+            float verticalOffset = 280;
+
+            GUIStyle headerStyle = new GUIStyle();
+            headerStyle.fontSize = 20;
+            headerStyle.fontStyle = FontStyle.Bold;
+
+            GUIStyle standardStyle = new GUIStyle();
+            standardStyle.fontSize = 15;
+            standardStyle.wordWrap = true;
+            standardStyle.clipping = TextClipping.Clip;
+
+            GUI.Box(new Rect(5, 5, 2 * verticalOffset, 14 * horizontalOffset), "");
+
+            GUI.Label(new Rect(10, 10, 200, 20), "ASIO Audio Manager", headerStyle);
+
+            GUI.Label(new Rect(10, 20 + horizontalOffset, verticalOffset - 10, horizontalOffset), "ASIO Driver name:", standardStyle);
+            GUI.Label(new Rect(10 + verticalOffset, 20 + horizontalOffset, verticalOffset - 10, horizontalOffset), AsioDriverName, standardStyle);
+
+            GUI.Label(new Rect(10, 20 + horizontalOffset * 2, verticalOffset - 10, horizontalOffset), "ASIO Driver connection:", standardStyle);
+
+            GUIStyle connectionStyle = new GUIStyle();
+            connectionStyle.fontSize = 15;
+            connectionStyle.normal.textColor = _connectionStatusGUI == "OK" ? Color.green : Color.red;
+
+            _connectionStatusGUI = (AsioOutPlayer != null) ? "OK" : "Error";
+
+            GUI.Label(new Rect(10 + verticalOffset, 20 + horizontalOffset * 2, verticalOffset - 10, horizontalOffset), _connectionStatusGUI, connectionStyle);
+
+            GUI.Label(new Rect(10, 20 + horizontalOffset * 3, verticalOffset - 10, horizontalOffset), "Number of supported channels:", standardStyle);
+            GUI.Label(new Rect(10 + verticalOffset, 20 + horizontalOffset * 3, verticalOffset - 10, horizontalOffset), AsioDriverInputChannelCount.ToString(), standardStyle);
+
+            GUI.Label(new Rect(10, 20 + horizontalOffset * 4, verticalOffset - 10, horizontalOffset), "Target Sample Rate:", standardStyle);
+            GUI.Label(new Rect(10 + verticalOffset, 20 + horizontalOffset * 4, verticalOffset - 10, horizontalOffset), TargetSampleRate.ToString() + " Hz", standardStyle);
+
+            GUI.Label(new Rect(10, 20 + horizontalOffset * 5, verticalOffset - 10, horizontalOffset), "Target Bits Per Sample:", standardStyle);
+            GUI.Label(new Rect(10 + verticalOffset, 20 + horizontalOffset * 5, verticalOffset - 10, horizontalOffset), TargetBitsPerSample.ToString(), standardStyle);
+
+            GUI.Label(new Rect(10, 20 + horizontalOffset * 6, verticalOffset - 10, horizontalOffset), "Number of Custom ASIO Audio Sources:", standardStyle);
+            GUI.Label(new Rect(10 + verticalOffset, 20 + horizontalOffset * 6, verticalOffset - 10, horizontalOffset), CustomAsioAudioSources.Count.ToString(), standardStyle);
+
+            if (CustomAsioAudioSources.Count == 0) return;
+
+            GUI.Box(new Rect(10, 20 + horizontalOffset * 7, 2 * verticalOffset - 10, 6 * horizontalOffset), "");
+
+            if (GUI.Button(new Rect(15, 25 + horizontalOffset * 7, 50, horizontalOffset), "<-"))
+            {
+                _currentAsioAudioSourceGUIIndex--;
+                if (_currentAsioAudioSourceGUIIndex < 0) _currentAsioAudioSourceGUIIndex = CustomAsioAudioSources.Count - 1;
+            }
+            if (GUI.Button(new Rect(2 * verticalOffset - 55, 25 + horizontalOffset * 7, 50, horizontalOffset), "->"))
+            {
+                _currentAsioAudioSourceGUIIndex++;
+                if (_currentAsioAudioSourceGUIIndex >= CustomAsioAudioSources.Count) _currentAsioAudioSourceGUIIndex = 0;
+            }
+
+            GUIStyle asioSourceTitleStyle = new GUIStyle();
+            asioSourceTitleStyle.fontSize = 15;
+            asioSourceTitleStyle.fontStyle = FontStyle.Bold;
+            asioSourceTitleStyle.alignment = TextAnchor.MiddleCenter;
+
+            GUI.Label(new Rect(65, 25 + horizontalOffset * 7, 2 * verticalOffset - 2 * 65 , 20), CustomAsioAudioSources[_currentAsioAudioSourceGUIIndex].gameObject.name, asioSourceTitleStyle);
+
+            GUI.Label(new Rect(15, 25 + horizontalOffset * 8, verticalOffset - 15, horizontalOffset), "Audio File Name:", standardStyle);
+            GUI.Label(new Rect(15 + verticalOffset, 25 + horizontalOffset * 8, verticalOffset - 15, horizontalOffset), Path.GetFileName(CustomAsioAudioSources[_currentAsioAudioSourceGUIIndex].AudioFilePath), standardStyle);
+
+            GUI.Label(new Rect(15, 25 + horizontalOffset * 9, verticalOffset - 15, horizontalOffset), "Target Output Channel:", standardStyle);
+            GUI.Label(new Rect(15 + verticalOffset, 25 + horizontalOffset * 9, verticalOffset - 15, horizontalOffset), CustomAsioAudioSources[_currentAsioAudioSourceGUIIndex].TargetOutputChannel.ToString(), standardStyle);
+
+            GUI.Label(new Rect(15, 25 + horizontalOffset * 10, verticalOffset - 15, horizontalOffset), "Audio Status:", standardStyle);
+
+            GUIStyle audioStatusStyle = new GUIStyle();
+            audioStatusStyle.fontSize = 15;
+            if (CustomAsioAudioSources[_currentAsioAudioSourceGUIIndex].AudioStatus == AsioAudioStatus.Playing)
+            {
+                audioStatusStyle.normal.textColor = Color.green;
+                _currentAsioAudioSourceGUIStatus = "Playing";
+            }
+            else if (CustomAsioAudioSources[_currentAsioAudioSourceGUIIndex].AudioStatus == AsioAudioStatus.Paused)
+            {
+                audioStatusStyle.normal.textColor = Color.yellow;
+                _currentAsioAudioSourceGUIStatus = "Paused";
+            }
+            else
+            {
+                audioStatusStyle.normal.textColor = Color.red;
+                _currentAsioAudioSourceGUIStatus = "Stopped";
+            }
+            GUI.Label(new Rect(15 + verticalOffset, 25 + horizontalOffset * 10, verticalOffset - 15, horizontalOffset), _currentAsioAudioSourceGUIStatus, audioStatusStyle);
+
+            if (GUI.Button(new Rect(15, 25 + horizontalOffset * 11, (2 * verticalOffset / 3) - 10, 3 * horizontalOffset / 2), "Play"))
+            {
+                CustomAsioAudioSources[_currentAsioAudioSourceGUIIndex].Play();
+            }
+
+            if (GUI.Button(new Rect(10 + (2 * verticalOffset / 3), 25 + horizontalOffset * 11, (2 * verticalOffset / 3) - 10, 3 * horizontalOffset / 2), "Pause"))
+            {
+                CustomAsioAudioSources[_currentAsioAudioSourceGUIIndex].Pause();
+            }
+
+            if (GUI.Button(new Rect(5 + (4 * verticalOffset / 3), 25 + horizontalOffset * 11, (2 * verticalOffset / 3) - 10, 3 * horizontalOffset / 2), "Stop"))
+            {
+                CustomAsioAudioSources[_currentAsioAudioSourceGUIIndex].Stop();
+            }    
+        }
+
         private void Awake()
         {
-            ConnectToAsioDriver();
+            if (!ConnectToAsioDriver()) return;
             GetAllValidAsioAudioSources();
             GetAllSamplesAsioAudioSources();
+            PlayAllAsioAudioSourcesOnAwake();
         }
 
         /// <summary>
         /// Establish the connection to a specified ASIO driver, whose name is set on AsioDriverName property.
         /// </summary>
-        private void ConnectToAsioDriver()
+        private bool ConnectToAsioDriver()
         {
             if (string.IsNullOrEmpty(AsioDriverName))
             {
                 Debug.LogError("The ASIO driver was not specified.");
-                return;
+                return false;
             }
 
             AsioOut asioOutPlayer;
@@ -91,7 +216,7 @@ namespace AsioAudioUnity
                         asioOutPlayer = new AsioOut(driverName);
                         AsioDriverInputChannelCount = asioOutPlayer.DriverInputChannelCount;
                         AsioOutPlayer = asioOutPlayer;
-                        return;
+                        return true;
                     }
                     catch (Exception e)
                     {
@@ -100,7 +225,7 @@ namespace AsioAudioUnity
                 }
             }
             Debug.LogError("The ASIO driver \"" + AsioDriverName + "\" was not found on the system.");
-            return;
+            return false;
         }
 
         /// <summary>
@@ -109,26 +234,45 @@ namespace AsioAudioUnity
         private void GetAllValidAsioAudioSources()
         {
             CustomAsioAudioSource[] allCustomAsioAudioSources = FindObjectsOfType<CustomAsioAudioSource>();
-            List<int> channelOffsets = new List<int>();
             for (int i = 0; i < allCustomAsioAudioSources.Length; i++)
             {
-                // Check if file name is empty
-                if (string.IsNullOrEmpty(allCustomAsioAudioSources[i].AudioFilePath))
-                {
-                    Debug.LogError("The ASIO Audio Source attached to GameObject \"" + allCustomAsioAudioSources[i].gameObject.name + "\" doesn't have any Audio File Name specified. It will be ignored.");
-                }
-                // Check if target output channel is specified on another ASIO Audio Source
-                else if (channelOffsets.Contains(allCustomAsioAudioSources[i].TargetOutputChannel))
-                {
-                    Debug.LogError("The targeted output channel of the ASIO Audio Source attached to GameObject \"" + allCustomAsioAudioSources[i].gameObject.name + "\" is already specified on another ASIO Audio Source, and needs to be unique. It will be ignored.");
-                }
-                else if (!allCustomAsioAudioSources[i].ReferencedAsioAudioManager || allCustomAsioAudioSources[i].ReferencedAsioAudioManager == this)
-                {
-                    CustomAsioAudioSources.Add(allCustomAsioAudioSources[i]);
-                    allCustomAsioAudioSources[i].ReferencedAsioAudioManager = this;
-                    channelOffsets.Add(allCustomAsioAudioSources[i].TargetOutputChannel);
-                }
+                RequestValidationAsioAudioSource(allCustomAsioAudioSources[i]);
             }
+        }
+
+        /// <summary>
+        /// Check if the ASIO Audio Source is valid for processing.
+        /// </summary>
+        /// <param name="customAsioAudioSource">The ASIO Audio Source to check.</param>
+        /// <returns></returns>
+        public bool RequestValidationAsioAudioSource(CustomAsioAudioSource customAsioAudioSource)
+        {
+            // Check if file name is empty
+            if (string.IsNullOrEmpty(customAsioAudioSource.AudioFilePath))
+            {
+                Debug.LogError("The ASIO Audio Source attached to GameObject \"" + customAsioAudioSource.gameObject.name + "\" doesn't have any Audio File Name specified. It will be ignored.");
+            }
+            // Check if target output channel is specified on another ASIO Audio Source
+            else if (CustomAsioAudioSources.Find((targetCustomAsioAudioSource) => targetCustomAsioAudioSource.TargetOutputChannel == customAsioAudioSource.TargetOutputChannel) != null &&
+                CustomAsioAudioSources.Find((targetCustomAsioAudioSource) => targetCustomAsioAudioSource.TargetOutputChannel == customAsioAudioSource.TargetOutputChannel) != customAsioAudioSource)
+            {
+                Debug.LogError("The targeted output channel of the ASIO Audio Source attached to GameObject \"" + customAsioAudioSource.gameObject.name + "\" is already specified on another ASIO Audio Source, and needs to be unique. It will be ignored.");
+            }
+            // Check if the ASIO Audio Source is already associated with another ASIO Audio Manager
+            else if (customAsioAudioSource.ReferencedAsioAudioManager && customAsioAudioSource.ReferencedAsioAudioManager != this)
+            {
+                Debug.LogError("The ASIO Audio Source attached to GameObject \"" + customAsioAudioSource.gameObject.name + "\" is already associated with another ASIO Audio Manager. It will be ignored.");
+            }
+            else
+            {
+                customAsioAudioSource.ReferencedAsioAudioManager = this;
+                if (!CustomAsioAudioSources.Contains(customAsioAudioSource)) CustomAsioAudioSources.Add(customAsioAudioSource);
+                return true;
+            }
+
+            if (customAsioAudioSource.ReferencedAsioAudioManager == this) customAsioAudioSource.ReferencedAsioAudioManager = null;
+            if (CustomAsioAudioSources.Contains(customAsioAudioSource)) CustomAsioAudioSources.Remove(customAsioAudioSource);
+            return false;
         }
 
         private void GetAllSamplesAsioAudioSources()
@@ -137,7 +281,6 @@ namespace AsioAudioUnity
             {
                 customAsioAudioSource.GetAudioSamplesFromFileName(true, true, true);
             }
-            PlayAllAsioAudioSourcesOnAwake();
         }
 
         private void PlayAllAsioAudioSourcesOnAwake()
@@ -216,7 +359,7 @@ namespace AsioAudioUnity
         {
             TimeSpentPlayingBetweenUpdates = 0;
 
-            ConnectToAsioDriver();
+            if (!ConnectToAsioDriver()) return;
             SetGlobalMultiplexingWaveProvider();
 
             AsioOutPlayer.Init(GlobalMultiplexingWaveProvider);
