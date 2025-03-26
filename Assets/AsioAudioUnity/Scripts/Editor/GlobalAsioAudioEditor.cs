@@ -76,8 +76,6 @@ namespace AsioAudioUnity
         }
         static void CreateCustomAsioAudioSource(MenuCommand menuCommand, bool addSourcePositionOsc)
         {
-            allCustomAsioAudioSources = FindObjectsOfType<CustomAsioAudioSource>();
-
             GameObject go = new GameObject("Custom ASIO Audio Source");
             go.AddComponent<CustomAsioAudioSource>();
 
@@ -94,36 +92,51 @@ namespace AsioAudioUnity
             allCustomAsioAudioSources.ToList().Add(go.GetComponent<CustomAsioAudioSource>());
         }
 
-        [MenuItem("AsioAudioUnity/Convert selected Audio Source to Custom ASIO Audio Source", false, 1)]
+        [MenuItem("AsioAudioUnity/Convert selected Audio Source(s) to Custom ASIO Audio Source(s)", false, 1)]
         static void ConvertSelectedAudioSource()
         {
-            ConvertAudioSource(Selection.activeGameObject.GetComponent<AudioSource>());
+            foreach (GameObject selectedGameObject in Selection.gameObjects)
+            {
+                ConvertAudioSource(selectedGameObject.GetComponent<AudioSource>());
+            }
+               
         }
 
-        [MenuItem("AsioAudioUnity/Convert selected Audio Source to Custom ASIO Audio Source", true)]
+        [MenuItem("AsioAudioUnity/Convert selected Audio Source(s) to Custom ASIO Audio Source(s)", true)]
         static bool ValidateConvertSelectedAudioSource()
         {
             if (!Selection.activeGameObject)
             {
                 return false;
             }
-            return Selection.activeGameObject.GetComponent<AudioSource>() != null;
+            foreach (GameObject selectedGameObject in Selection.gameObjects)
+            {
+                if (selectedGameObject.GetComponent<AudioSource>() == null) return false;
+            }
+            return true;
         }
 
-        [MenuItem("AsioAudioUnity/Add Source Position OSC to selected Custom ASIO Audio Source", false, 2)]
+        [MenuItem("AsioAudioUnity/Add Source Position OSC to selected Custom ASIO Audio Source(s)", false, 2)]
         static void AddSourcePositionOscToSelected()
         {
-            AddSourcePositionOsc(Selection.activeGameObject.GetComponent<CustomAsioAudioSource>());
+            foreach (GameObject selectedGameObject in Selection.gameObjects) 
+            {
+                AddSourcePositionOsc(selectedGameObject.GetComponent<CustomAsioAudioSource>());
+            }
         }
 
-        [MenuItem("AsioAudioUnity/Add Source Position OSC to selected Custom ASIO Audio Source", true)]
+        [MenuItem("AsioAudioUnity/Add Source Position OSC to selected Custom ASIO Audio Source(s)", true)]
         static bool ValidateAddSourcePositionOscToSelected()
         {
             if (!Selection.activeGameObject)
             {
                 return false;
             }
-            return Selection.activeGameObject.GetComponent<CustomAsioAudioSource>() != null;
+            foreach (GameObject selectedGameObject in Selection.gameObjects)
+            {
+                if (selectedGameObject.GetComponent<CustomAsioAudioSource>() == null) return false;
+            }
+            return true;
         }
 
         [MenuItem("AsioAudioUnity/Convert all Audio Sources in scene to Custom ASIO Audio Sources", false, 21)]
