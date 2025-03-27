@@ -5,7 +5,7 @@ using UnityEngine;
 
 namespace AsioAudioUnity
 {
-    [CustomEditor(typeof(CustomAsioAudioSource))]
+    [CustomEditor(typeof(CustomAsioAudioSource)), CanEditMultipleObjects]
     public class CustomAsioAudioSourceEditor : Editor
     {
         public override void OnInspectorGUI()
@@ -19,34 +19,38 @@ namespace AsioAudioUnity
             Rect dropArea = GUILayoutUtility.GetRect(0f, 50f, GUILayout.ExpandWidth(true));
             GUI.Box(dropArea, "Put an audio file here");
 
-            // Check if a file has been dragged to this area
-            if (dropArea.Contains(Event.current.mousePosition) && DragAndDrop.paths.Length > 0)
+            foreach (CustomAsioAudioSource customAsioAudioSourceTarget in targets)
             {
-                string filePath = DragAndDrop.paths[0];
-
-                if (Event.current.type == EventType.DragUpdated)
+                // Check if a file has been dragged to this area
+                if (dropArea.Contains(Event.current.mousePosition) && DragAndDrop.paths.Length > 0)
                 {
-                    if (IsAudioFile(filePath)) DragAndDrop.visualMode = DragAndDropVisualMode.Generic;
-                }
+                    string filePath = DragAndDrop.paths[0];
 
-                if (Event.current.type == EventType.DragExited)
-                {
-                    // Check that the file is indeed an audio file
-                    if (IsAudioFile(filePath))
+                    if (Event.current.type == EventType.DragUpdated)
                     {
-                        string fileName = Path.GetFileName(filePath); // File name
-                        string fileExtension = Path.GetExtension(filePath); // File extension
-                        ((CustomAsioAudioSource)target).AudioFilePath = filePath; // Set the audio file path in the CustomAsioAudioSource component
-                        EditorUtility.SetDirty((CustomAsioAudioSource)target);
-                        Debug.Log("File name: " + fileName);
-                        Debug.Log("File extension: " + fileExtension);
+                        if (IsAudioFile(filePath)) DragAndDrop.visualMode = DragAndDropVisualMode.Generic;
                     }
-                    else
+
+                    if (Event.current.type == EventType.DragExited)
                     {
-                        Debug.LogWarning("This file is not a valid audio file.");
+                        // Check that the file is indeed an audio file
+                        if (IsAudioFile(filePath))
+                        {
+                            string fileName = Path.GetFileName(filePath); // File name
+                            string fileExtension = Path.GetExtension(filePath); // File extension
+                            customAsioAudioSourceTarget.AudioFilePath = filePath; // Set the audio file path in the CustomAsioAudioSource component
+                            EditorUtility.SetDirty((CustomAsioAudioSource)target);
+                            Debug.Log("File name: " + fileName);
+                            Debug.Log("File extension: " + fileExtension);
+                        }
+                        else
+                        {
+                            Debug.LogWarning("This file is not a valid audio file.");
+                        }
                     }
                 }
             }
+            
 
             serializedObject.ApplyModifiedProperties();
 
