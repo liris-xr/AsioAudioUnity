@@ -1,6 +1,5 @@
 using System.IO;
 using UnityEditor;
-using UnityEditor.SceneManagement;
 using UnityEngine;
 
 namespace AsioAudioUnity
@@ -12,12 +11,20 @@ namespace AsioAudioUnity
         {
             serializedObject.Update();
 
+            EditorGUI.BeginChangeCheck();
+
             // Create a field in the editor to allow drag-and-drop of the audio file
             GUILayout.Label("Drag an audio file here");
 
             // Display a field for drag-and-drop
             Rect dropArea = GUILayoutUtility.GetRect(0f, 50f, GUILayout.ExpandWidth(true));
-            GUI.Box(dropArea, "Put an audio file here");
+            GUIStyle dropStyle = new GUIStyle();
+            dropStyle.alignment = TextAnchor.MiddleCenter;
+            dropStyle.normal.textColor = Color.white;
+            dropStyle.clipping = TextClipping.Clip;
+            dropStyle.fontSize = 15;
+
+            GUI.Box(dropArea, ((CustomAsioAudioSource)target).AudioFilePath != null ? Path.GetFileName(((CustomAsioAudioSource)target).AudioFilePath) : "Put an audio file here", dropStyle);
 
             foreach (CustomAsioAudioSource customAsioAudioSourceTarget in targets)
             {
@@ -39,7 +46,7 @@ namespace AsioAudioUnity
                             string fileName = Path.GetFileName(filePath); // File name
                             string fileExtension = Path.GetExtension(filePath); // File extension
                             customAsioAudioSourceTarget.AudioFilePath = filePath; // Set the audio file path in the CustomAsioAudioSource component
-                            EditorUtility.SetDirty((CustomAsioAudioSource)target);
+                            Undo.RegisterCompleteObjectUndo(customAsioAudioSourceTarget, "Set Audio File Path");
                             Debug.Log("File name: " + fileName);
                             Debug.Log("File extension: " + fileExtension);
                         }
@@ -50,12 +57,41 @@ namespace AsioAudioUnity
                     }
                 }
             }
-            
 
-            serializedObject.ApplyModifiedProperties();
+            if (EditorGUI.EndChangeCheck())
+            {
+                Debug.Log("Change check");
+                Undo.RegisterCompleteObjectUndo(targets, "Set Audio File Path");
+                serializedObject.ApplyModifiedProperties();
+            }
+
+            EditorGUI.BeginChangeCheck();
+
+            EditorGUILayout.Space(10f);
+            EditorGUILayout.BeginHorizontal();
+
+            bool playButton = GUILayout.Button("Play", GUILayout.Height(25f));
+            bool pauseButton = GUILayout.Button("Pause", GUILayout.Height(25f));
+            bool stopButton = GUILayout.Button("Stop", GUILayout.Height(25f));
+            
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.Space(10f);
+
+            foreach (CustomAsioAudioSource customAsioAudioSourceTarget in targets)
+            {
+                if (playButton) customAsioAudioSourceTarget.Play();
+                if (pauseButton) customAsioAudioSourceTarget.Pause();
+                if (stopButton) customAsioAudioSourceTarget.Stop();
+            }
 
             // Display the usual inspector
             DrawDefaultInspector();
+            
+
+            if(EditorGUI.EndChangeCheck())
+            {
+                serializedObject.ApplyModifiedProperties();
+            }
         }
 
         // Check if the file is an audio file based on its extension

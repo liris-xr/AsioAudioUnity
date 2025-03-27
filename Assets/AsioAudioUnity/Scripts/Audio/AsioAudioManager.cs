@@ -4,9 +4,6 @@ using System.Linq;
 using UnityEngine;
 using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
-using System.Security.AccessControl;
-using System.Data;
-using static UnityEngine.Windows.WebCam.VideoCapture;
 using System.IO;
 
 namespace AsioAudioUnity
@@ -122,6 +119,7 @@ namespace AsioAudioUnity
             GUI.Label(new Rect(10 + verticalOffset, 20 + horizontalOffset * 6, verticalOffset - 10, horizontalOffset), CustomAsioAudioSources.Count.ToString(), standardStyle);
 
             if (CustomAsioAudioSources.Count == 0) return;
+            if (_currentAsioAudioSourceGUIIndex < 0 || _currentAsioAudioSourceGUIIndex >= CustomAsioAudioSources.Count) _currentAsioAudioSourceGUIIndex = 0;
 
             GUI.Box(new Rect(10, 20 + horizontalOffset * 7, 2 * verticalOffset - 10, 6 * horizontalOffset), "");
 
@@ -189,9 +187,9 @@ namespace AsioAudioUnity
         private void Awake()
         {
             if (!ConnectToAsioDriver()) return;
-            GetAllValidAsioAudioSources();
-            GetAllSamplesAsioAudioSources();
-            PlayAllAsioAudioSourcesOnAwake();
+            CustomAsioAudioSources = GetAllValidAsioAudioSources();
+            GetAllSamplesAsioAudioSources(CustomAsioAudioSources);
+            PlayAllAsioAudioSourcesOnAwake(CustomAsioAudioSources);
         }
 
         /// <summary>
@@ -231,13 +229,15 @@ namespace AsioAudioUnity
         /// <summary>
         /// Get all the ASIO Audio Sources from the scene, and check if they are valid.
         /// </summary>
-        private void GetAllValidAsioAudioSources()
+        private List<CustomAsioAudioSource> GetAllValidAsioAudioSources()
         {
             CustomAsioAudioSource[] allCustomAsioAudioSources = FindObjectsOfType<CustomAsioAudioSource>();
+            List<CustomAsioAudioSource> customAsioAudioSourcesValid = new List<CustomAsioAudioSource>();
             for (int i = 0; i < allCustomAsioAudioSources.Length; i++)
             {
-                RequestValidationAsioAudioSource(allCustomAsioAudioSources[i]);
+                if (RequestValidationAsioAudioSource(allCustomAsioAudioSources[i])) customAsioAudioSourcesValid.Add(allCustomAsioAudioSources[i]);
             }
+            return customAsioAudioSourcesValid;
         }
 
         /// <summary>
@@ -275,17 +275,33 @@ namespace AsioAudioUnity
             return false;
         }
 
-        private void GetAllSamplesAsioAudioSources()
+        /// <summary>
+        /// Remove an ASIO Audio Source from the list of ASIO Audio Sources.
+        /// </summary>
+        /// <param name="customAsioAudioSource">The ASIO Audio Source to remove.</param>
+        /// <returns></returns>
+        public bool RequestRemoveAsioAudioSource(CustomAsioAudioSource customAsioAudioSource)
         {
-            foreach (CustomAsioAudioSource customAsioAudioSource in CustomAsioAudioSources)
+            if (CustomAsioAudioSources.Contains(customAsioAudioSource))
+            {
+                customAsioAudioSource.ReferencedAsioAudioManager = null;
+                CustomAsioAudioSources.Remove(customAsioAudioSource);
+                return true;
+            }
+            return false;
+        }
+
+        private void GetAllSamplesAsioAudioSources(List<CustomAsioAudioSource> customAsioAudioSources)
+        {
+            foreach (CustomAsioAudioSource customAsioAudioSource in customAsioAudioSources)
             {
                 customAsioAudioSource.GetAudioSamplesFromFileName(true, true, true);
             }
         }
 
-        private void PlayAllAsioAudioSourcesOnAwake()
+        private void PlayAllAsioAudioSourcesOnAwake(List<CustomAsioAudioSource> customAsioAudioSources)
         {
-            foreach (CustomAsioAudioSource customAsioAudioSource in CustomAsioAudioSources)
+            foreach (CustomAsioAudioSource customAsioAudioSource in customAsioAudioSources)
             {
                 if (customAsioAudioSource.PlayOnAwake) customAsioAudioSource.Play();
             }
@@ -367,6 +383,11 @@ namespace AsioAudioUnity
         }
 
         private void OnDisable()
+        {
+            AsioOutPlayer?.Dispose();
+        }
+
+        private void OnApplicationQuit()
         {
             AsioOutPlayer?.Dispose();
         }

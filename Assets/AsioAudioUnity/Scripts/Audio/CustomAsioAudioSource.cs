@@ -19,7 +19,7 @@ namespace AsioAudioUnity
             set { _onParameterChanged = value; }
         }
 
-        [SerializeField] private string _audioFilePath;
+        [SerializeField][ReadOnly] private string _audioFilePath;
         public string AudioFilePath
         {
             get { return _audioFilePath; }
@@ -47,12 +47,7 @@ namespace AsioAudioUnity
         public AsioAudioManager ReferencedAsioAudioManager
         {
             get { return _referencedAsioAudioManager; }
-            set
-            {
-                if (value == _referencedAsioAudioManager) return;
-                _referencedAsioAudioManager = value;
-                if (OnParameterChanged != null) OnParameterChanged.Invoke();
-            }
+            set { _referencedAsioAudioManager = value; }
         }
 
         [SerializeField] private bool _playOnAwake = true;
@@ -167,21 +162,46 @@ namespace AsioAudioUnity
             set { _onPause = value; }
         }
 
+        private void OnEnable()
+        {
+            AddThisAsValidAsioAudioSource(ReferencedAsioAudioManager);
+        }
+
+        private void OnDisable()
+        {
+            if (ReferencedAsioAudioManager)
+            {
+                Stop();
+                ReferencedAsioAudioManager.RequestRemoveAsioAudioSource(this);
+            }
+        }
+
         private void Start()
         {
-            OnParameterChanged.AddListener(() =>
+            OnParameterChanged.AddListener(delegate { AddThisAsValidAsioAudioSource(ReferencedAsioAudioManager); });
+        }
+
+        private void AddThisAsValidAsioAudioSource(AsioAudioManager asioAudioManager = null)
+        {
+            /*if (!ReferencedAsioAudioManager)
             {
-                if (!ReferencedAsioAudioManager)
-                {
-                    AsioAudioManager asioAudioManager = FindFirstObjectByType<AsioAudioManager>();
-                    if (asioAudioManager != null && asioAudioManager.RequestValidationAsioAudioSource(this)) GetAudioSamplesFromFileName(true, true, true);
-                }
-                else
-                {
-                    if (AudioStatus == AsioAudioStatus.Playing || AudioStatus == AsioAudioStatus.Paused) Stop();
-                    if (ReferencedAsioAudioManager.RequestValidationAsioAudioSource(this)) GetAudioSamplesFromFileName(true, true, true);
-                }
-            });
+                AsioAudioManager asioAudioManager = FindFirstObjectByType<AsioAudioManager>();
+                if (asioAudioManager != null && asioAudioManager.RequestValidationAsioAudioSource(this)) GetAudioSamplesFromFileName(true, true, true);
+            }
+            else
+            {
+                Stop();
+                if (ReferencedAsioAudioManager.RequestValidationAsioAudioSource(this)) GetAudioSamplesFromFileName(true, true, true);
+            }*/
+            if (asioAudioManager != null) 
+            {
+                if (asioAudioManager.RequestValidationAsioAudioSource(this)) GetAudioSamplesFromFileName(true, true, true);
+            }
+            else
+            {
+                AsioAudioManager asioAudioManagerInScene = FindFirstObjectByType<AsioAudioManager>();
+                if (asioAudioManagerInScene != null && asioAudioManagerInScene.RequestValidationAsioAudioSource(this)) GetAudioSamplesFromFileName(true, true, true);
+            } 
         }
 
         private void Update()
@@ -320,6 +340,7 @@ namespace AsioAudioUnity
         /// </summary>
         public void Play()
         {
+            if (AudioStatus == AsioAudioStatus.Playing) return;
             InternalStopwatch.Start();
             SendRequestAndReset(AsioAudioStatus.Playing);
             OnPlay.Invoke();
@@ -330,6 +351,7 @@ namespace AsioAudioUnity
         /// </summary>
         public void Stop()
         {
+            if (AudioStatus == AsioAudioStatus.Stopped) return;
             ActualTimestamp = 0;
             InternalStopwatch.Reset();
             SendRequestAndReset(AsioAudioStatus.Stopped);
@@ -341,7 +363,7 @@ namespace AsioAudioUnity
         /// </summary>
         public void Pause()
         {
-            if (AudioStatus == AsioAudioStatus.Stopped) return;
+            if (AudioStatus == AsioAudioStatus.Paused || AudioStatus == AsioAudioStatus.Stopped) return;
             InternalStopwatch.Stop();
             SendRequestAndReset(AsioAudioStatus.Paused);
             OnPause.Invoke();
@@ -378,6 +400,10 @@ namespace AsioAudioUnity
             AudioStatus = newAsioAudioStatus;
 
             ReferencedAsioAudioManager.ConnectMixAndPlay();
+        }
+        private void OnApplicationQuit()
+        {
+            if (ReferencedAsioAudioManager) ReferencedAsioAudioManager.RequestRemoveAsioAudioSource(this);
         }
     }
 }
