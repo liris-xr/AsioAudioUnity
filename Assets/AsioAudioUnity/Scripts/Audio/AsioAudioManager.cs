@@ -235,6 +235,11 @@ namespace AsioAudioUnity
             {
                 Debug.LogError("The ASIO Audio Source attached to GameObject \"" + customAsioAudioSource.gameObject.name + "\" doesn't have any Audio File Name specified. It will be ignored.");
             }
+            // Check if target output channel is not specified
+            else if (customAsioAudioSource.TargetOutputChannel <= 0)
+            {
+                Debug.LogError("The ASIO Audio Source attached to GameObject \"" + customAsioAudioSource.gameObject.name + "\" doesn't have any Target Output Channel specified. It will be ignored.");
+            }
             // Check if target output channel is specified on another ASIO Audio Source
             else if (CustomAsioAudioSources.Find((targetCustomAsioAudioSource) => targetCustomAsioAudioSource.TargetOutputChannel == customAsioAudioSource.TargetOutputChannel) != null &&
                 CustomAsioAudioSources.Find((targetCustomAsioAudioSource) => targetCustomAsioAudioSource.TargetOutputChannel == customAsioAudioSource.TargetOutputChannel) != customAsioAudioSource)
