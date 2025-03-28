@@ -187,9 +187,6 @@ namespace AsioAudioUnity
         private void Awake()
         {
             if (!ConnectToAsioDriver()) return;
-            CustomAsioAudioSources = GetAllValidAsioAudioSources();
-            GetAllSamplesAsioAudioSources(CustomAsioAudioSources);
-            PlayAllAsioAudioSourcesOnAwake(CustomAsioAudioSources);
         }
 
         /// <summary>
@@ -224,20 +221,6 @@ namespace AsioAudioUnity
             }
             Debug.LogError("The ASIO driver \"" + AsioDriverName + "\" was not found on the system.");
             return false;
-        }
-
-        /// <summary>
-        /// Get all the ASIO Audio Sources from the scene, and check if they are valid.
-        /// </summary>
-        private List<CustomAsioAudioSource> GetAllValidAsioAudioSources()
-        {
-            CustomAsioAudioSource[] allCustomAsioAudioSources = FindObjectsByType<CustomAsioAudioSource>(FindObjectsSortMode.InstanceID);
-            List<CustomAsioAudioSource> customAsioAudioSourcesValid = new List<CustomAsioAudioSource>();
-            for (int i = 0; i < allCustomAsioAudioSources.Length; i++)
-            {
-                if (RequestValidationAsioAudioSource(allCustomAsioAudioSources[i])) customAsioAudioSourcesValid.Add(allCustomAsioAudioSources[i]);
-            }
-            return customAsioAudioSourcesValid;
         }
 
         /// <summary>
@@ -291,22 +274,6 @@ namespace AsioAudioUnity
             return false;
         }
 
-        private void GetAllSamplesAsioAudioSources(List<CustomAsioAudioSource> customAsioAudioSources)
-        {
-            foreach (CustomAsioAudioSource customAsioAudioSource in customAsioAudioSources)
-            {
-                customAsioAudioSource.GetAudioSamplesFromFileName(true, true, true);
-            }
-        }
-
-        private void PlayAllAsioAudioSourcesOnAwake(List<CustomAsioAudioSource> customAsioAudioSources)
-        {
-            foreach (CustomAsioAudioSource customAsioAudioSource in customAsioAudioSources)
-            {
-                if (customAsioAudioSource.PlayOnAwake) customAsioAudioSource.Play();
-            }
-        }
-
         /// <summary>
         /// Setup the global provider by associating each ASIO Audio Source to a specific output channel on the ASIO driver.
         /// </summary>
@@ -325,7 +292,7 @@ namespace AsioAudioUnity
             }
 
             // Step 1: Get all the Sample Providers from the ASIO Audio Sources, convert them to Wave Providers (to manage silenced sources), and store them in a dictionary
-            Dictionary<CustomAsioAudioSource, IWaveProvider> asioSourcesWaveProviders = new Dictionary<CustomAsioAudioSource, IWaveProvider>();
+            List<IWaveProvider> asioSourcesWaveProviders = new List<IWaveProvider>();
             int numberOfOutputChannels = CustomAsioAudioSources.Max((customAsioAudioSource) => customAsioAudioSource.TargetOutputChannel);
 
             for (int i = 0; i < numberOfOutputChannels; i++)
@@ -342,29 +309,22 @@ namespace AsioAudioUnity
                     {
                         if (customAsioAudioSourceFound.AudioStatus == AsioAudioStatus.Playing)
                         {
-                            if (TargetBitsPerSample == BitsPerSample.Bits32) asioSourcesWaveProviders.Add(customAsioAudioSourceFound, customAsioAudioSourceFound.SourceSampleProvider.ToWaveProvider());
-                            else if (TargetBitsPerSample == BitsPerSample.Bits16) asioSourcesWaveProviders.Add(customAsioAudioSourceFound, customAsioAudioSourceFound.SourceSampleProvider.ToWaveProvider16());
+                            if (TargetBitsPerSample == BitsPerSample.Bits32) asioSourcesWaveProviders.Add(customAsioAudioSourceFound.SourceSampleProvider.ToWaveProvider());
+                            else if (TargetBitsPerSample == BitsPerSample.Bits16) asioSourcesWaveProviders.Add(customAsioAudioSourceFound.SourceSampleProvider.ToWaveProvider16());
                         }
-                        else
-                        {
-                            asioSourcesWaveProviders.Add(customAsioAudioSourceFound, new SilenceProvider(customAsioAudioSourceFound.SourceSampleProvider.WaveFormat));
-                        }
+                        else asioSourcesWaveProviders.Add(new SilenceProvider(customAsioAudioSourceFound.SourceSampleProvider.WaveFormat));
+                        
                     }
                 }
-                else
-                {
-                    CustomAsioAudioSource customAsioAudioSourceDummy = new CustomAsioAudioSource();
-                    customAsioAudioSourceDummy.TargetOutputChannel = i + 1;
-                    asioSourcesWaveProviders.Add(customAsioAudioSourceDummy, new SilenceProvider(new WaveFormat(TargetSampleRate, (int)TargetBitsPerSample, 1)));
-                }
+                else asioSourcesWaveProviders.Add(new SilenceProvider(new WaveFormat(TargetSampleRate, (int)TargetBitsPerSample, 1)));
             }
 
             // Step 2: Use the dictionary to connect the input channels of the ASIO driver to the output channels of the ASIO Audio Sources
-            GlobalMultiplexingWaveProvider = new MultiplexingWaveProvider(asioSourcesWaveProviders.Values.ToList(), CustomAsioAudioSources.Count);
+            GlobalMultiplexingWaveProvider = new MultiplexingWaveProvider(asioSourcesWaveProviders, asioSourcesWaveProviders.Count);
 
             for (int i = 0; i < asioSourcesWaveProviders.Count; i++)
             {
-                GlobalMultiplexingWaveProvider.ConnectInputToOutput(i, asioSourcesWaveProviders.ElementAt(i).Key.TargetOutputChannel - 1);
+                GlobalMultiplexingWaveProvider.ConnectInputToOutput(i, i);
             }
         }
 

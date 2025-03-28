@@ -6,41 +6,25 @@ using UnityEngine.Events;
 using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
 using System.Diagnostics;
+using System.Collections;
 
 namespace AsioAudioUnity
 {
     [System.Serializable]
     public class CustomAsioAudioSource : MonoBehaviour
     {
-        private UnityEvent _onParameterChanged = new UnityEvent();
-        private UnityEvent OnParameterChanged
-        {
-            get { return _onParameterChanged; }
-            set { _onParameterChanged = value; }
-        }
-
         [SerializeField][ReadOnly] private string _audioFilePath;
         public string AudioFilePath
         {
             get { return _audioFilePath; }
-            set
-            {
-                if (value == _audioFilePath) return;
-                _audioFilePath = value;
-                if (OnParameterChanged != null) OnParameterChanged.Invoke();
-            }
+            set { _audioFilePath = value; }
         }
 
         [SerializeField] private int _targetOutputChannel = 0;
         public int TargetOutputChannel
         {
             get { return _targetOutputChannel; }
-            set
-            {
-                if (value == _targetOutputChannel) return;
-                _targetOutputChannel = value;
-                if (OnParameterChanged != null) OnParameterChanged.Invoke(); 
-            }
+            set { _targetOutputChannel = value; }
         }
 
         [SerializeField] private AsioAudioManager _referencedAsioAudioManager;
@@ -134,37 +118,48 @@ namespace AsioAudioUnity
             private set { _actualTimestamp = value; }
         }
 
-        private Stopwatch _internalStopwatch = new Stopwatch();
+        private Stopwatch _internalStopwatch;
         public Stopwatch InternalStopwatch
         {
             get { return _internalStopwatch; }
             private set { _internalStopwatch = value; }
         }
 
-        [SerializeField] private UnityEvent _onPlay = new UnityEvent();
+        [SerializeField] private UnityEvent _onPlay;
         public UnityEvent OnPlay
         {
             get { return _onPlay; }
             set { _onPlay = value; }
         }
 
-        [SerializeField] private UnityEvent _onStop = new UnityEvent();
+        [SerializeField] private UnityEvent _onStop;
         public UnityEvent OnStop
         {
             get { return _onStop; }
             set { _onStop = value; }
         }
 
-        [SerializeField] private UnityEvent _onPause = new UnityEvent();
+        [SerializeField] private UnityEvent _onPause;
         public UnityEvent OnPause
         {
             get { return _onPause; }
             set { _onPause = value; }
         }
 
+        private void Awake()
+        {
+            OnPlay = new UnityEvent();
+            OnStop = new UnityEvent();
+            OnPause = new UnityEvent();
+            InternalStopwatch = new Stopwatch();
+
+            bool audioSourceIsValid = AddThisAsValidAsioAudioSource(ReferencedAsioAudioManager);
+            if (audioSourceIsValid && PlayOnAwake) StartCoroutine(PlayOnAwakeCoroutine());
+        }
+
         private void OnEnable()
         {
-            AddThisAsValidAsioAudioSource(ReferencedAsioAudioManager);
+            if(SourceSampleProvider == null) AddThisAsValidAsioAudioSource(ReferencedAsioAudioManager);
         }
 
         private void OnDisable()
@@ -173,35 +168,22 @@ namespace AsioAudioUnity
             {
                 Stop();
                 ReferencedAsioAudioManager.RequestRemoveAsioAudioSource(this);
+                SourceSampleProvider = null;
             }
         }
 
-        private void Start()
+        private bool AddThisAsValidAsioAudioSource(AsioAudioManager asioAudioManager = null)
         {
-            OnParameterChanged.AddListener(delegate { AddThisAsValidAsioAudioSource(ReferencedAsioAudioManager); });
-        }
-
-        private void AddThisAsValidAsioAudioSource(AsioAudioManager asioAudioManager = null)
-        {
-            /*if (!ReferencedAsioAudioManager)
-            {
-                AsioAudioManager asioAudioManager = FindFirstObjectByType<AsioAudioManager>();
-                if (asioAudioManager != null && asioAudioManager.RequestValidationAsioAudioSource(this)) GetAudioSamplesFromFileName(true, true, true);
-            }
-            else
-            {
-                Stop();
-                if (ReferencedAsioAudioManager.RequestValidationAsioAudioSource(this)) GetAudioSamplesFromFileName(true, true, true);
-            }*/
             if (asioAudioManager != null) 
             {
-                if (asioAudioManager.RequestValidationAsioAudioSource(this)) GetAudioSamplesFromFileName(true, true, true);
+                if (asioAudioManager.RequestValidationAsioAudioSource(this)) return GetAudioSamplesFromFileName(true, true, true);
             }
             else
             {
                 AsioAudioManager asioAudioManagerInScene = FindFirstObjectByType<AsioAudioManager>();
-                if (asioAudioManagerInScene != null && asioAudioManagerInScene.RequestValidationAsioAudioSource(this)) GetAudioSamplesFromFileName(true, true, true);
-            } 
+                if (asioAudioManagerInScene != null && asioAudioManagerInScene.RequestValidationAsioAudioSource(this)) return GetAudioSamplesFromFileName(true, true, true);
+            }
+            return false;
         }
 
         private void Update()
@@ -227,17 +209,17 @@ namespace AsioAudioUnity
         }
 
         /// <summary>
-        /// Get the ASIO Audio Source samples with the audio file specified in the Audio File Name field.
+        /// Get the ASIO Audio Source samples with the audio file specified in the Audio File Name field, retruns true if correctly get.
         /// </summary>
-        /// <param name="convertToMono">Convert audio samples to be mixed into one channel (only works for stereo samples).</param>
-        /// <param name="getAudioFileLength">Get the total length of the audio file and put the value in AudioFileTotalLength.</param>
         /// <param name="convertSampleRateToNewFile">Convert the audio file to the target sample rate specified in the ASIO Audio Manager to a new file.</param>
-        public void GetAudioSamplesFromFileName(bool convertSampleRateToNewFile = false, bool getAudioFileLength = false, bool convertToMono = false)
+        /// <param name="getAudioFileLength">Get the total length of the audio file and put the value in AudioFileTotalLength.</param>
+        /// <param name="convertToMono">Convert audio samples to be mixed into one channel (only works for stereo samples).</param>
+        public bool GetAudioSamplesFromFileName(bool convertSampleRateToNewFile = false, bool getAudioFileLength = false, bool convertToMono = false)
         {
             if (string.IsNullOrEmpty(AudioFilePath))
             {
                 UnityEngine.Debug.LogError("The ASIO Audio Source attached to GameObject \"" + gameObject.name + "\" doesn't have any Audio File Name specified. It will be ignored.");
-                return;
+                return false;
             }
 
             SourceSampleProvider = new AudioFileReader(AudioFilePath);
@@ -253,6 +235,8 @@ namespace AsioAudioUnity
             if (convertToMono) ConvertToMono();
 
             GetWaveFormatProperties();
+
+            return true;
         }
 
         /// <summary>
@@ -377,6 +361,12 @@ namespace AsioAudioUnity
             ActualTimestamp = 0;
             InternalStopwatch.Restart();
             SendRequestAndReset(AsioAudioStatus.Playing);
+        }
+
+        private IEnumerator PlayOnAwakeCoroutine()
+        {
+            while (ReferencedAsioAudioManager && ReferencedAsioAudioManager.AsioOutPlayer == null) yield return null;
+            Play();
         }
 
         private void SendRequestAndReset(AsioAudioStatus newAsioAudioStatus)
