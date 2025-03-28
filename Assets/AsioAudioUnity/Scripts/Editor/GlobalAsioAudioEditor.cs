@@ -6,8 +6,9 @@ namespace AsioAudioUnity
 {
     public class GlobalAsioAudioEditor : EditorWindow
     {
-        private static AudioSource[] allBasicAudioSources = FindObjectsOfType<AudioSource>();
-        private static CustomAsioAudioSource[] allCustomAsioAudioSources = FindObjectsOfType<CustomAsioAudioSource>();
+
+        private static AudioSource[] allBasicAudioSources = FindObjectsByType<AudioSource>(FindObjectsSortMode.InstanceID);
+        private static CustomAsioAudioSource[] allCustomAsioAudioSources = FindObjectsByType<CustomAsioAudioSource>(FindObjectsSortMode.InstanceID);
 
         static void ConvertAudioSource(AudioSource audioSourceToConvert)
         {
@@ -44,7 +45,7 @@ namespace AsioAudioUnity
 
         static void DefineCustomAsioAudioSourceOutputChannel(CustomAsioAudioSource customAsioAudioSource)
         {
-            allCustomAsioAudioSources = FindObjectsOfType<CustomAsioAudioSource>();
+            allCustomAsioAudioSources = FindObjectsByType<CustomAsioAudioSource>(FindObjectsSortMode.InstanceID);
 
             int targetOutputChannelIndex = 1;
 
@@ -142,29 +143,29 @@ namespace AsioAudioUnity
         [MenuItem("AsioAudioUnity/Convert all Audio Sources in scene to Custom ASIO Audio Sources", false, 21)]
         static void ConvertAllAudioSources()
         {
-            allCustomAsioAudioSources = FindObjectsOfType<CustomAsioAudioSource>();
-            allBasicAudioSources = FindObjectsOfType<AudioSource>();
+            allCustomAsioAudioSources = FindObjectsByType<CustomAsioAudioSource>(FindObjectsSortMode.InstanceID);
+            allBasicAudioSources = FindObjectsByType<AudioSource>(FindObjectsSortMode.InstanceID);
 
             foreach (AudioSource basicAudioSource in allBasicAudioSources)
             {
                 ConvertAudioSource(basicAudioSource);
             }
 
-            if (FindObjectsOfType<AudioSource>().Length == 0) Debug.Log("All Audio Sources in scene have been converted to Custom ASIO Audio Sources.");
+            if (FindObjectsByType<AudioSource>(FindObjectsSortMode.InstanceID).Length == 0) Debug.Log("All Audio Sources in scene have been converted to Custom ASIO Audio Sources.");
             else Debug.LogWarning("Some Audio Sources in scene have not been converted to Custom ASIO Audio Sources.");
         }
 
         [MenuItem("AsioAudioUnity/Add Source Position OSC to all Custom ASIO Audio Sources", false, 22)]
         static void AddAllSourcePositionOsc()
         {
-            allCustomAsioAudioSources = FindObjectsOfType<CustomAsioAudioSource>();
+            allCustomAsioAudioSources = FindObjectsByType<CustomAsioAudioSource>(FindObjectsSortMode.InstanceID);
 
             foreach (CustomAsioAudioSource customAsioAudioSource in allCustomAsioAudioSources)
             {
                 AddSourcePositionOsc(customAsioAudioSource);
             }
 
-            if (FindObjectsOfType<SourcePositionOsc>().Length == allCustomAsioAudioSources.Length) Debug.Log("All Source Position OSC scripts in scene have been added to Custom ASIO Audio Sources.");
+            if (FindObjectsByType<SourcePositionOsc>(FindObjectsSortMode.InstanceID).Length == allCustomAsioAudioSources.Length) Debug.Log("All Source Position OSC scripts in scene have been added to Custom ASIO Audio Sources.");
             else Debug.LogWarning("Some Custom ASIO Audio Sources in scene have not a Source Position OSC attached.");
         }
 
@@ -183,7 +184,7 @@ namespace AsioAudioUnity
         [MenuItem("GameObject/AsioAudioUnity/ASIO Audio Manager", false, 21)]
         static void CreateAsioAudioManager(MenuCommand menuCommand)
         {
-            if (FindObjectOfType<AsioAudioManager>())
+            if (FindFirstObjectByType<AsioAudioManager>())
             {
                 Debug.LogError("ASIO Audio Manager already exists in scene.");
                 return;
@@ -202,7 +203,7 @@ namespace AsioAudioUnity
         [MenuItem("GameObject/AsioAudioUnity/OSC Manager", false, 22)]
         static void CreateOscManager(MenuCommand menuCommand)
         {
-            if (FindObjectOfType<OSC>())
+            if (FindFirstObjectByType<OSC>())
             {
                 Debug.LogError("OSC Manager already exists in scene.");
                 return;

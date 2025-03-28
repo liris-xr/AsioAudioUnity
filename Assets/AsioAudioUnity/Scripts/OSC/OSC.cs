@@ -453,7 +453,7 @@ public class UDPPacketIO
 
     void OnDestroy() 
     {
-        ObjectPositionOsc[] objectPositionsOsc = GameObject.FindObjectsOfType<ObjectPositionOsc>();
+        ObjectPositionOsc[] objectPositionsOsc = FindObjectsByType<ObjectPositionOsc>(FindObjectsSortMode.InstanceID);
         foreach (ObjectPositionOsc objectPositionOsc in objectPositionsOsc)
         {
             objectPositionOsc.SendResetPositionOsc();

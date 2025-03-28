@@ -231,7 +231,7 @@ namespace AsioAudioUnity
         /// </summary>
         private List<CustomAsioAudioSource> GetAllValidAsioAudioSources()
         {
-            CustomAsioAudioSource[] allCustomAsioAudioSources = FindObjectsOfType<CustomAsioAudioSource>();
+            CustomAsioAudioSource[] allCustomAsioAudioSources = FindObjectsByType<CustomAsioAudioSource>(FindObjectsSortMode.InstanceID);
             List<CustomAsioAudioSource> customAsioAudioSourcesValid = new List<CustomAsioAudioSource>();
             for (int i = 0; i < allCustomAsioAudioSources.Length; i++)
             {
