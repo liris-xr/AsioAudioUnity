@@ -13,18 +13,37 @@ namespace AsioAudioUnity
     [System.Serializable]
     public class CustomAsioAudioSource : MonoBehaviour
     {
+        private UnityEvent _onParameterChanged;
+        public UnityEvent OnParameterChanged
+        {
+            get { return _onParameterChanged; }
+            private set { _onParameterChanged = value; }
+        }
+
         [SerializeField][ReadOnly] private string _audioFilePath;
         public string AudioFilePath
         {
             get { return _audioFilePath; }
-            set { _audioFilePath = value; }
+            set 
+            {
+                if (_audioFilePath == value) return;
+                _audioFilePath = value;
+                if (OnParameterChanged != null)
+                    OnParameterChanged.Invoke();
+            }
         }
 
         [SerializeField] private int _targetOutputChannel = 0;
         public int TargetOutputChannel
         {
             get { return _targetOutputChannel; }
-            set { _targetOutputChannel = value; }
+            set 
+            {
+                if (_targetOutputChannel == value) return;
+                _targetOutputChannel = value;
+                if (OnParameterChanged != null)
+                    OnParameterChanged.Invoke();
+            }
         }
 
         [SerializeField] private AsioAudioManager _referencedAsioAudioManager;
@@ -148,6 +167,7 @@ namespace AsioAudioUnity
 
         private void Awake()
         {
+            OnParameterChanged = new UnityEvent();
             OnPlay = new UnityEvent();
             OnStop = new UnityEvent();
             OnPause = new UnityEvent();
@@ -170,6 +190,11 @@ namespace AsioAudioUnity
                 ReferencedAsioAudioManager.RequestRemoveAsioAudioSource(this);
                 SourceSampleProvider = null;
             }
+        }
+
+        private void Start()
+        {
+            OnParameterChanged.AddListener(() => AddThisAsValidAsioAudioSource(ReferencedAsioAudioManager));
         }
 
         private bool AddThisAsValidAsioAudioSource(AsioAudioManager asioAudioManager = null)
