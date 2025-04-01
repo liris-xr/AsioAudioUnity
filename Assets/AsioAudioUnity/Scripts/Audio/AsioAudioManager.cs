@@ -462,7 +462,7 @@ namespace AsioAudioUnity
             foreach (CustomAsioAudioSource customAsioAudioSource in CustomAsioAudioSources)
             {
                 if (reinitialiseSamples && customAsioAudioSource.AudioFilePathOriginal != null) customAsioAudioSource.AudioFilePath = String.Copy(customAsioAudioSource.AudioFilePathOriginal);
-                customAsioAudioSource.GetAudioSamplesFromFileName(reinitialiseSamples, reinitialiseSamples, true);
+                customAsioAudioSource.SetAudioSamplesFromFileName(reinitialiseSamples, reinitialiseSamples, true);
 
                 customAsioAudioSource.SourceSampleProvider = new OffsetSampleProvider(customAsioAudioSource.SourceSampleProvider)
                 {
@@ -482,9 +482,16 @@ namespace AsioAudioUnity
                 return;
             }
             SetGlobalMultiplexingWaveProvider();
-
-            AsioOutPlayer.Init(GlobalMultiplexingWaveProvider);
-            AsioOutPlayer.Play();
+            try
+            {
+                AsioOutPlayer.Init(GlobalMultiplexingWaveProvider);
+                AsioOutPlayer.Play();
+            }
+            catch (Exception e)
+            {
+                foreach (CustomAsioAudioSource customAsioAudioSource in CustomAsioAudioSources) customAsioAudioSource.Pause();
+                throw e.GetBaseException();
+            }
         }
 
         private void OnDisable()

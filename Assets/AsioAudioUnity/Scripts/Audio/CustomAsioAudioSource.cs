@@ -8,7 +8,6 @@ using NAudio.Wave.SampleProviders;
 using System.Diagnostics;
 using System.Collections;
 using System.Linq;
-using System.Diagnostics.Eventing.Reader;
 
 namespace AsioAudioUnity
 {
@@ -210,12 +209,11 @@ namespace AsioAudioUnity
 
         private bool AddThisAsValidAsioAudioSource(AsioAudioManager asioAudioManager = null)
         {
-            
             if (asioAudioManager != null) 
             {
                 if (asioAudioManager.RequestValidationAsioAudioSource(this))
                 {
-                    bool returnValue = GetAudioSamplesFromFileName(true, true, true);
+                    bool returnValue = SetAudioSamplesFromFileName(true, true, true);
                     if (AudioStatus == AsioAudioStatus.Playing || AudioStatus == AsioAudioStatus.Paused) Stop();
                     return returnValue;
                 }
@@ -225,7 +223,7 @@ namespace AsioAudioUnity
                 AsioAudioManager asioAudioManagerInScene = FindFirstObjectByType<AsioAudioManager>();
                 if (asioAudioManagerInScene != null && asioAudioManagerInScene.RequestValidationAsioAudioSource(this))
                 {
-                    bool returnValue = GetAudioSamplesFromFileName(true, true, true);
+                    bool returnValue = SetAudioSamplesFromFileName(true, true, true);
                     if (AudioStatus == AsioAudioStatus.Playing || AudioStatus == AsioAudioStatus.Paused) Stop();
                     return returnValue;
                 }
@@ -261,13 +259,16 @@ namespace AsioAudioUnity
         /// <param name="convertSampleRateToNewFile">Convert the audio file to the target sample rate specified in the ASIO Audio Manager to a new file.</param>
         /// <param name="getAudioFileLength">Get the total length of the audio file and put the value in AudioFileTotalLength.</param>
         /// <param name="convertToMono">Convert audio samples to be mixed into one channel (only works for stereo samples).</param>
-        public bool GetAudioSamplesFromFileName(bool convertSampleRateToNewFile = false, bool getAudioFileLength = false, bool convertToMono = false)
+        public bool SetAudioSamplesFromFileName(bool convertSampleRateToNewFile = false, bool getAudioFileLength = false, bool convertToMono = false)
         {
             if (string.IsNullOrEmpty(AudioFilePath))
             {
                 UnityEngine.Debug.LogError("The ASIO Audio Source attached to GameObject \"" + gameObject.name + "\" doesn't have any Audio File Name specified. It will be ignored.");
                 return false;
             }
+
+            if (AudioFilePathOriginal == null) AudioFilePathOriginal = String.Copy(GetNotConvertedPath(AudioFilePath));
+            else if (GetNotConvertedPath(AudioFilePath) != AudioFilePathOriginal) AudioFilePathOriginal = String.Copy(GetNotConvertedPath(AudioFilePath));
 
             SourceSampleProvider = new AudioFileReader(AudioFilePath);
 
@@ -292,26 +293,23 @@ namespace AsioAudioUnity
         /// <param name="sampleRate">The targeted sample rate.</param>
         public void ConvertToTargetedSampleRate(int sampleRate)
         {
+            if (AudioFilePathOriginal == null || !File.Exists(AudioFilePathOriginal))
+            {
+                throw new NullReferenceException("The audio file path is either undefined or invalid.");
+            }
+
             if (SourceSampleProvider == null)
             {
                 throw new NullReferenceException("The audio samples in SourceSampleProvider are not set.");
             }
 
-            if (AudioFilePath == null || !File.Exists(AudioFilePath))
-            {
-                throw new NullReferenceException("The audio file path is either undefined or invalid.");
-            }
-
-            if (AudioFilePathOriginal == null) AudioFilePathOriginal = String.Copy(GetNotConvertedPath(AudioFilePath));
-            else if (GetNotConvertedPath(AudioFilePath) != AudioFilePathOriginal) AudioFilePathOriginal = String.Copy(GetNotConvertedPath(AudioFilePath));
-
-            if (sampleRate == SourceSampleProvider.WaveFormat.SampleRate)
+            if (SourceSampleProvider.WaveFormat.SampleRate == sampleRate)
             {
                 UnityEngine.Debug.LogWarning("The sample rate of the file is already " + sampleRate + " Hz. No conversion needed.");
                 return;
             }
 
-            string audioFilePathConverted = Path.GetDirectoryName(AudioFilePath) + "\\" + Path.GetFileNameWithoutExtension(AudioFilePath) + "_" + sampleRate + Path.GetExtension(AudioFilePath);
+            string audioFilePathConverted = Path.GetDirectoryName(AudioFilePathOriginal) + "\\" + Path.GetFileNameWithoutExtension(AudioFilePathOriginal) + "_" + sampleRate + Path.GetExtension(AudioFilePathOriginal);
             if (File.Exists(audioFilePathConverted))
             {
                 UnityEngine.Debug.LogWarning("The converted file " + audioFilePathConverted + " seems to already exist. This file will be selected instead without sample rate conversion applied.");
@@ -325,8 +323,8 @@ namespace AsioAudioUnity
                 ISampleProvider resampler = new WdlResamplingSampleProvider(SourceSampleProvider, sampleRate);
                 WaveFileWriter.CreateWaveFile16(audioFilePathConverted, resampler);
             }
-            
-            if (AudioFilePath != audioFilePathConverted) AudioFilePath = audioFilePathConverted;
+
+            AudioFilePath = audioFilePathConverted;
             SourceSampleProvider = new AudioFileReader(AudioFilePath);
         }
 
@@ -336,8 +334,10 @@ namespace AsioAudioUnity
 
             string fileName = Path.GetFileNameWithoutExtension(audioFilePath);
             string[] parts = fileName.Split("_");
+            string[] partsWithoutSampleRate = parts.Take(parts.Length - 1).ToArray();
 
-            string originalAudioFilePath = Path.GetDirectoryName(audioFilePath) + string.Join("_", parts.Take(parts.Length - 1)) + Path.GetExtension(audioFilePath);
+            string originalAudioFilePath = Path.Combine(Path.GetDirectoryName(audioFilePath), string.Join("_", partsWithoutSampleRate) + Path.GetExtension(audioFilePath));
+
             if (File.Exists(originalAudioFilePath) && int.TryParse(parts[^1], out _)) 
             {
                 if (new AudioFileReader(audioFilePath).WaveFormat.SampleRate == int.Parse(parts[^1]))
@@ -437,6 +437,7 @@ namespace AsioAudioUnity
 
         private IEnumerator PlayOnAwakeCoroutine()
         {
+            while (SourceSampleProvider.WaveFormat.SampleRate != ReferencedAsioAudioManager.TargetSampleRate) yield return null;
             while (ReferencedAsioAudioManager && ReferencedAsioAudioManager.AsioOutPlayer == null) yield return null;
             Play();
         }
