@@ -5,27 +5,70 @@ using UnityEngine;
 using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
 using System.IO;
+using UnityEngine.Events;
 
 namespace AsioAudioUnity
 {
     public class AsioAudioManager : MonoBehaviour
     {
+        private UnityEvent _onAsioDriverNameChanged;
+        public UnityEvent OnAsioDriverNameChanged
+        {
+            get { return _onAsioDriverNameChanged; }
+            private set { _onAsioDriverNameChanged = value; }
+        }
+
         [SerializeField] private string _asioDriverName;
         public string AsioDriverName
         {
             get { return _asioDriverName; }
+            private set 
+            { 
+                if (_asioDriverName == value) return;
+                _asioDriverName = value;
+                if (OnAsioDriverNameChanged != null)
+                    OnAsioDriverNameChanged.Invoke();
+            }
+        }
+
+        private UnityEvent _onTargetSampleRateChanged;
+        public UnityEvent OnTargetSampleRateChanged
+        {
+            get { return _onTargetSampleRateChanged; }
+            private set { _onTargetSampleRateChanged = value; }
         }
 
         [SerializeField] private int _targetSampleRate = 48000;
         public int TargetSampleRate
         {
             get { return _targetSampleRate; }
+            private set 
+            {
+                if (_targetSampleRate == value) return;
+                _targetSampleRate = value;
+                if (OnTargetSampleRateChanged != null)
+                    OnTargetSampleRateChanged.Invoke();
+            }
+        }
+
+        private UnityEvent _onTargetBitsPerSampleChanged;
+        public UnityEvent OnTargetBitsPerSampleChanged
+        {
+            get { return _onTargetBitsPerSampleChanged; }
+            private set { _onTargetBitsPerSampleChanged = value; }
         }
 
         [SerializeField] private BitsPerSample _targetBitsPerSample = BitsPerSample.Bits32;
         public BitsPerSample TargetBitsPerSample
         {
             get { return _targetBitsPerSample; }
+            private set 
+            {
+                if (_targetBitsPerSample == value) return;
+                _targetBitsPerSample = value;
+                if (OnTargetBitsPerSampleChanged != null)
+                    OnTargetBitsPerSampleChanged.Invoke();
+            }
         }
 
         [SerializeField][ReadOnly] private int _asioDriverInputChannelCount;
@@ -48,9 +91,13 @@ namespace AsioAudioUnity
             get { return _displayInfoOnGameWindow; }
             set { _displayInfoOnGameWindow = value; }
         }
+        private bool _displayModeClear = false;
         private string _connectionStatusGUI = "";
         private int _currentAsioAudioSourceGUIIndex = 0;
         private string _currentAsioAudioSourceGUIStatus = "Stopped";
+        private string _asioDriverNameGUI = "";
+        private string _targetSampleRateGUI = "";
+        private string _targetBitsPerSampleGUI = "";
 
         private MultiplexingWaveProvider _globalMultiplexingWaveProvider;
         public MultiplexingWaveProvider GlobalMultiplexingWaveProvider
@@ -66,16 +113,11 @@ namespace AsioAudioUnity
             private set { _asioOutPlayer = value; }
         }
 
-        private float _timeSpentPlayingBetweenUpdates;
-        public float TimeSpentPlayingBetweenUpdates
-        {
-            get { return _timeSpentPlayingBetweenUpdates; }
-            private set { _timeSpentPlayingBetweenUpdates = value; }
-        }
-
         private void OnGUI()
         {
             if (!DisplayInfoOnGameWindow) return;
+
+            //GUI.backgroundColor = _displayModeClear ? Color.black : Color.white;
 
             float horizontalOffset = 20;
             float verticalOffset = 280;
@@ -83,24 +125,56 @@ namespace AsioAudioUnity
             GUIStyle headerStyle = new GUIStyle();
             headerStyle.fontSize = 20;
             headerStyle.fontStyle = FontStyle.Bold;
+            headerStyle.normal.textColor = _displayModeClear ? Color.white : Color.black;
 
             GUIStyle standardStyle = new GUIStyle();
             standardStyle.fontSize = 15;
             standardStyle.wordWrap = true;
             standardStyle.clipping = TextClipping.Clip;
+            standardStyle.normal.textColor = _displayModeClear ? Color.white : Color.black;
 
-            GUI.Box(new Rect(5, 5, 2 * verticalOffset, 14 * horizontalOffset), "");
+            GUIStyle asioSourceTitleStyle = new GUIStyle();
+            asioSourceTitleStyle.fontSize = 15;
+            asioSourceTitleStyle.fontStyle = FontStyle.Bold;
+            asioSourceTitleStyle.alignment = TextAnchor.MiddleCenter;
+            asioSourceTitleStyle.normal.textColor = _displayModeClear ? Color.white : Color.black;
 
-            GUI.Label(new Rect(10, 10, 200, 20), "ASIO Audio Manager", headerStyle);
+            GUIStyle buttonStyle = new GUIStyle(GUI.skin.button);
+            buttonStyle.hover.textColor = _displayModeClear ? Color.black : Color.white;
+            buttonStyle.normal.textColor = _displayModeClear ? Color.white : Color.black;
 
-            GUI.Label(new Rect(10, 20 + horizontalOffset, verticalOffset - 10, horizontalOffset), "ASIO Driver name:", standardStyle);
-            GUI.Label(new Rect(10 + verticalOffset, 20 + horizontalOffset, verticalOffset - 10, horizontalOffset), AsioDriverName, standardStyle);
-
-            GUI.Label(new Rect(10, 20 + horizontalOffset * 2, verticalOffset - 10, horizontalOffset), "ASIO Driver connection:", standardStyle);
+            GUIStyle invertedButtonStyle = new GUIStyle(buttonStyle);
+            invertedButtonStyle.normal.textColor = _displayModeClear ? Color.black : Color.white;
 
             GUIStyle connectionStyle = new GUIStyle();
             connectionStyle.fontSize = 15;
             connectionStyle.normal.textColor = _connectionStatusGUI == "OK" ? Color.green : Color.red;
+
+            GUIStyle modifiedStyle = new GUIStyle(standardStyle);
+            modifiedStyle.normal.textColor = Color.yellow;
+
+            GUI.color = _displayModeClear ? new Color(0f, 0f, 0f, 0.5f) : new Color(1f, 1f, 1f, 0.5f);
+
+            GUI.Box(new Rect(5, 5, 2 * verticalOffset, 14 * horizontalOffset), "");
+            GUI.Box(new Rect(10, 20 + horizontalOffset * 7, 2 * verticalOffset - 10, 6 * horizontalOffset), "");
+
+            GUI.color = Color.white;
+
+            GUI.Label(new Rect(10, 10, verticalOffset, horizontalOffset), "ASIO Audio Manager", headerStyle);
+
+            if (GUI.Button(new Rect(5 + (10 * verticalOffset / 6), 10, (2 * verticalOffset / 6) - 10, horizontalOffset), "Clear/Dark", invertedButtonStyle))
+            {
+                _displayModeClear = !_displayModeClear;
+            }
+
+            GUI.Label(new Rect(10, 20 + horizontalOffset, verticalOffset - 10, horizontalOffset), "ASIO Driver name:", standardStyle);
+
+            _asioDriverNameGUI = GUI.TextField(new Rect(10 + verticalOffset, 20 + horizontalOffset, (2 * verticalOffset / 3) - 10, horizontalOffset), _asioDriverNameGUI, _asioDriverNameGUI == AsioDriverName ? standardStyle : modifiedStyle);
+            if (GUI.Button(new Rect(5 + (10 * verticalOffset / 6), 20 + horizontalOffset, (2 * verticalOffset / 6) - 10, horizontalOffset), "Set", buttonStyle))
+                AsioDriverName = _asioDriverNameGUI;
+
+            GUI.Label(new Rect(10, 20 + horizontalOffset * 2, verticalOffset - 10, horizontalOffset), "ASIO Driver connection:", standardStyle);
+
 
             _connectionStatusGUI = (AsioOutPlayer != null) ? "OK" : "Error";
 
@@ -109,11 +183,25 @@ namespace AsioAudioUnity
             GUI.Label(new Rect(10, 20 + horizontalOffset * 3, verticalOffset - 10, horizontalOffset), "Number of supported channels:", standardStyle);
             GUI.Label(new Rect(10 + verticalOffset, 20 + horizontalOffset * 3, verticalOffset - 10, horizontalOffset), AsioDriverInputChannelCount.ToString(), standardStyle);
 
-            GUI.Label(new Rect(10, 20 + horizontalOffset * 4, verticalOffset - 10, horizontalOffset), "Target Sample Rate:", standardStyle);
-            GUI.Label(new Rect(10 + verticalOffset, 20 + horizontalOffset * 4, verticalOffset - 10, horizontalOffset), TargetSampleRate.ToString() + " Hz", standardStyle);
+            GUI.Label(new Rect(10, 20 + horizontalOffset * 4, verticalOffset - 10, horizontalOffset), "Target Sample Rate (Hz):", standardStyle);
+            _targetSampleRateGUI = GUI.TextField(new Rect(10 + verticalOffset, 20 + horizontalOffset * 4, (2 * verticalOffset / 3) - 10, horizontalOffset), _targetSampleRateGUI, _targetSampleRateGUI == TargetSampleRate.ToString() ? standardStyle : modifiedStyle);
+            if (GUI.Button(new Rect(5 + (10 * verticalOffset / 6), 20 + horizontalOffset * 4, (2 * verticalOffset / 6) - 10, horizontalOffset), "Set", buttonStyle))
+            {
+                if (int.TryParse(_targetSampleRateGUI, out _targetSampleRate))
+                {
+                    int targetSampleRateParsed = int.Parse(_targetSampleRateGUI);
+                    if (targetSampleRateParsed != TargetSampleRate) TargetSampleRate = targetSampleRateParsed;
+                }
+            }
+            //TargetSampleRate = int.TryParse(_targetSampleRateGUI, out _targetSampleRate) ? int.Parse(_targetSampleRateGUI) : TargetSampleRate; 
 
             GUI.Label(new Rect(10, 20 + horizontalOffset * 5, verticalOffset - 10, horizontalOffset), "Target Bits Per Sample:", standardStyle);
-            GUI.Label(new Rect(10 + verticalOffset, 20 + horizontalOffset * 5, verticalOffset - 10, horizontalOffset), TargetBitsPerSample.ToString(), standardStyle);
+            _targetBitsPerSampleGUI = GUI.TextField(new Rect(10 + verticalOffset, 20 + horizontalOffset * 5, (2 * verticalOffset / 3) - 10, horizontalOffset), _targetBitsPerSampleGUI, _targetBitsPerSampleGUI == ((int)TargetBitsPerSample).ToString() ? standardStyle : modifiedStyle);
+            if (GUI.Button(new Rect(5 + (10 * verticalOffset / 6), 20 + horizontalOffset * 5, (2 * verticalOffset / 6) - 10, horizontalOffset), "Set", buttonStyle))
+            {
+                if (_targetBitsPerSampleGUI == "16") TargetBitsPerSample = BitsPerSample.Bits16;
+                else if (_targetBitsPerSampleGUI == "32") TargetBitsPerSample = BitsPerSample.Bits32;
+            }
 
             GUI.Label(new Rect(10, 20 + horizontalOffset * 6, verticalOffset - 10, horizontalOffset), "Number of Custom ASIO Audio Sources:", standardStyle);
             GUI.Label(new Rect(10 + verticalOffset, 20 + horizontalOffset * 6, verticalOffset - 10, horizontalOffset), CustomAsioAudioSources.Count.ToString(), standardStyle);
@@ -121,23 +209,17 @@ namespace AsioAudioUnity
             if (CustomAsioAudioSources.Count == 0) return;
             if (_currentAsioAudioSourceGUIIndex < 0 || _currentAsioAudioSourceGUIIndex >= CustomAsioAudioSources.Count) _currentAsioAudioSourceGUIIndex = 0;
 
-            GUI.Box(new Rect(10, 20 + horizontalOffset * 7, 2 * verticalOffset - 10, 6 * horizontalOffset), "");
 
-            if (GUI.Button(new Rect(15, 25 + horizontalOffset * 7, 50, horizontalOffset), "<-"))
+            if (GUI.Button(new Rect(15, 25 + horizontalOffset * 7, 50, horizontalOffset), "<-", buttonStyle))
             {
                 _currentAsioAudioSourceGUIIndex--;
                 if (_currentAsioAudioSourceGUIIndex < 0) _currentAsioAudioSourceGUIIndex = CustomAsioAudioSources.Count - 1;
             }
-            if (GUI.Button(new Rect(2 * verticalOffset - 55, 25 + horizontalOffset * 7, 50, horizontalOffset), "->"))
+            if (GUI.Button(new Rect(2 * verticalOffset - 55, 25 + horizontalOffset * 7, 50, horizontalOffset), "->", buttonStyle))
             {
                 _currentAsioAudioSourceGUIIndex++;
                 if (_currentAsioAudioSourceGUIIndex >= CustomAsioAudioSources.Count) _currentAsioAudioSourceGUIIndex = 0;
             }
-
-            GUIStyle asioSourceTitleStyle = new GUIStyle();
-            asioSourceTitleStyle.fontSize = 15;
-            asioSourceTitleStyle.fontStyle = FontStyle.Bold;
-            asioSourceTitleStyle.alignment = TextAnchor.MiddleCenter;
 
             GUI.Label(new Rect(65, 25 + horizontalOffset * 7, 2 * verticalOffset - 2 * 65 , 20), CustomAsioAudioSources[_currentAsioAudioSourceGUIIndex].gameObject.name, asioSourceTitleStyle);
 
@@ -168,17 +250,17 @@ namespace AsioAudioUnity
             }
             GUI.Label(new Rect(15 + verticalOffset, 25 + horizontalOffset * 10, verticalOffset - 15, horizontalOffset), _currentAsioAudioSourceGUIStatus, audioStatusStyle);
 
-            if (GUI.Button(new Rect(15, 25 + horizontalOffset * 11, (2 * verticalOffset / 3) - 10, 3 * horizontalOffset / 2), "Play"))
+            if (GUI.Button(new Rect(15, 25 + horizontalOffset * 11, (2 * verticalOffset / 3) - 10, 3 * horizontalOffset / 2), "Play", buttonStyle))
             {
                 CustomAsioAudioSources[_currentAsioAudioSourceGUIIndex].Play();
             }
 
-            if (GUI.Button(new Rect(10 + (2 * verticalOffset / 3), 25 + horizontalOffset * 11, (2 * verticalOffset / 3) - 10, 3 * horizontalOffset / 2), "Pause"))
+            if (GUI.Button(new Rect(10 + (2 * verticalOffset / 3), 25 + horizontalOffset * 11, (2 * verticalOffset / 3) - 10, 3 * horizontalOffset / 2), "Pause", buttonStyle))
             {
                 CustomAsioAudioSources[_currentAsioAudioSourceGUIIndex].Pause();
             }
 
-            if (GUI.Button(new Rect(5 + (4 * verticalOffset / 3), 25 + horizontalOffset * 11, (2 * verticalOffset / 3) - 10, 3 * horizontalOffset / 2), "Stop"))
+            if (GUI.Button(new Rect(5 + (4 * verticalOffset / 3), 25 + horizontalOffset * 11, (2 * verticalOffset / 3) - 10, 3 * horizontalOffset / 2), "Stop", buttonStyle))
             {
                 CustomAsioAudioSources[_currentAsioAudioSourceGUIIndex].Stop();
             }    
@@ -186,7 +268,35 @@ namespace AsioAudioUnity
 
         private void Awake()
         {
+            OnAsioDriverNameChanged = new UnityEvent();
+            OnTargetSampleRateChanged = new UnityEvent();
+            OnTargetBitsPerSampleChanged = new UnityEvent();
+
+            _asioDriverNameGUI = AsioDriverName;
+            _targetSampleRateGUI = TargetSampleRate.ToString();
+            _targetBitsPerSampleGUI = ((int)TargetBitsPerSample).ToString();
             if (!ConnectToAsioDriver()) return;
+        }
+
+        private void Start()
+        {
+            OnAsioDriverNameChanged.AddListener(delegate { ResetDriverAndSamples(); });
+            OnTargetSampleRateChanged.AddListener(delegate { ResetDriverAndSamples(); });
+            OnTargetBitsPerSampleChanged.AddListener(delegate { ResetDriverAndSamples(); });
+        }
+
+        private void ResetDriverAndSamples()
+        {
+            if (CustomAsioAudioSources != null)
+            {
+                SetAllAsioAudioSourceSampleOffsets(true);
+            }
+            if (AsioOutPlayer != null)
+            {
+                AsioOutPlayer.Stop();
+                AsioOutPlayer.Dispose();
+            }
+            ConnectMixAndPlay();
         }
 
         /// <summary>
@@ -215,10 +325,12 @@ namespace AsioAudioUnity
                     }
                     catch (Exception e)
                     {
+                        AsioOutPlayer = null;
                         throw e.GetBaseException();
                     }
                 }
             }
+            AsioOutPlayer = null;
             Debug.LogError("The ASIO driver \"" + AsioDriverName + "\" was not found on the system.");
             return false;
         }
@@ -323,25 +435,34 @@ namespace AsioAudioUnity
                 }
                 else asioSourcesWaveProviders.Add(new SilenceProvider(new WaveFormat(TargetSampleRate, (int)TargetBitsPerSample, 1)));
             }
-
-            // Step 2: Use the dictionary to connect the input channels of the ASIO driver to the output channels of the ASIO Audio Sources
-            GlobalMultiplexingWaveProvider = new MultiplexingWaveProvider(asioSourcesWaveProviders, asioSourcesWaveProviders.Count);
-
-            for (int i = 0; i < asioSourcesWaveProviders.Count; i++)
+            try
             {
-                GlobalMultiplexingWaveProvider.ConnectInputToOutput(i, i);
+                // Step 2: Use the dictionary to connect the input channels of the ASIO driver to the output channels of the ASIO Audio Sources
+                GlobalMultiplexingWaveProvider = new MultiplexingWaveProvider(asioSourcesWaveProviders, asioSourcesWaveProviders.Count);
+
+                for (int i = 0; i < asioSourcesWaveProviders.Count; i++)
+                {
+                    GlobalMultiplexingWaveProvider.ConnectInputToOutput(i, i);
+                }
             }
+            catch (Exception e)
+            {
+                foreach (CustomAsioAudioSource customAsioAudioSource in CustomAsioAudioSources) customAsioAudioSource.Pause();
+                throw e.GetBaseException();
+            }
+
         }
 
         /// <summary>
         /// Redefine all ASIO Audio Sources samples providers with offsets.
         /// </summary>
-        public void SetAllAsioAudioSourceSampleOffsets()
+        public void SetAllAsioAudioSourceSampleOffsets(bool reinitialiseSamples)
         {
             // Get the data before updating the status of sounds to play
             foreach (CustomAsioAudioSource customAsioAudioSource in CustomAsioAudioSources)
             {
-                customAsioAudioSource.GetAudioSamplesFromFileName(false, false, true);
+                if (reinitialiseSamples && customAsioAudioSource.AudioFilePathOriginal != null) customAsioAudioSource.AudioFilePath = String.Copy(customAsioAudioSource.AudioFilePathOriginal);
+                customAsioAudioSource.GetAudioSamplesFromFileName(reinitialiseSamples, reinitialiseSamples, true);
 
                 customAsioAudioSource.SourceSampleProvider = new OffsetSampleProvider(customAsioAudioSource.SourceSampleProvider)
                 {
@@ -355,9 +476,11 @@ namespace AsioAudioUnity
         /// </summary>
         public void ConnectMixAndPlay()
         {
-            TimeSpentPlayingBetweenUpdates = 0;
-
-            if (!ConnectToAsioDriver()) return;
+            if (!ConnectToAsioDriver())
+            {
+                foreach (CustomAsioAudioSource customAsioAudioSource in CustomAsioAudioSources) customAsioAudioSource.Pause();
+                return;
+            }
             SetGlobalMultiplexingWaveProvider();
 
             AsioOutPlayer.Init(GlobalMultiplexingWaveProvider);
@@ -366,12 +489,24 @@ namespace AsioAudioUnity
 
         private void OnDisable()
         {
-            AsioOutPlayer?.Dispose();
+            if (AsioOutPlayer != null)
+            {
+                AsioOutPlayer.Stop();
+                AsioOutPlayer.Dispose();
+                AsioOutPlayer = null;
+            }
+            GlobalMultiplexingWaveProvider = null;
         }
 
         private void OnApplicationQuit()
         {
-            AsioOutPlayer?.Dispose();
+            if (AsioOutPlayer != null)
+            {
+                AsioOutPlayer.Stop();
+                AsioOutPlayer.Dispose();
+                AsioOutPlayer = null;
+            }
+            GlobalMultiplexingWaveProvider = null;
         }
     }
 }

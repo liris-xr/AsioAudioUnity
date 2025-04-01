@@ -7,17 +7,19 @@ using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
 using System.Diagnostics;
 using System.Collections;
+using System.Linq;
+using System.Diagnostics.Eventing.Reader;
 
 namespace AsioAudioUnity
 {
     [System.Serializable]
     public class CustomAsioAudioSource : MonoBehaviour
     {
-        private UnityEvent _onParameterChanged;
-        public UnityEvent OnParameterChanged
+        private UnityEvent _onAudioFilePathChanged;
+        public UnityEvent OnAudioFilePathChanged
         {
-            get { return _onParameterChanged; }
-            private set { _onParameterChanged = value; }
+            get { return _onAudioFilePathChanged; }
+            private set { _onAudioFilePathChanged = value; }
         }
 
         [SerializeField][ReadOnly] private string _audioFilePath;
@@ -28,9 +30,24 @@ namespace AsioAudioUnity
             {
                 if (_audioFilePath == value) return;
                 _audioFilePath = value;
-                if (OnParameterChanged != null)
-                    OnParameterChanged.Invoke();
+                _audioFilePathOriginal = null;
+                if (OnAudioFilePathChanged != null)
+                    OnAudioFilePathChanged.Invoke();
             }
+        }
+
+        private string _audioFilePathOriginal;
+        public string AudioFilePathOriginal
+        {
+            get { return _audioFilePathOriginal; }
+            private set { _audioFilePathOriginal = value; }
+        }
+
+        private UnityEvent _onTargetOutputChannelChanged;
+        public UnityEvent OnTargetOutputChannelChanged
+        {
+            get { return _onTargetOutputChannelChanged; }
+            private set { _onTargetOutputChannelChanged = value; }
         }
 
         [SerializeField] private int _targetOutputChannel = 0;
@@ -41,8 +58,8 @@ namespace AsioAudioUnity
             {
                 if (_targetOutputChannel == value) return;
                 _targetOutputChannel = value;
-                if (OnParameterChanged != null)
-                    OnParameterChanged.Invoke();
+                if (OnTargetOutputChannelChanged != null)
+                    OnTargetOutputChannelChanged.Invoke();
             }
         }
 
@@ -167,10 +184,13 @@ namespace AsioAudioUnity
 
         private void Awake()
         {
-            OnParameterChanged = new UnityEvent();
+            OnAudioFilePathChanged = new UnityEvent();
+            OnTargetOutputChannelChanged = new UnityEvent();
+
             OnPlay = new UnityEvent();
             OnStop = new UnityEvent();
             OnPause = new UnityEvent();
+
             InternalStopwatch = new Stopwatch();
 
             bool audioSourceIsValid = AddThisAsValidAsioAudioSource(ReferencedAsioAudioManager);
@@ -179,34 +199,36 @@ namespace AsioAudioUnity
 
         private void OnEnable()
         {
-            if(SourceSampleProvider == null) AddThisAsValidAsioAudioSource(ReferencedAsioAudioManager);
-        }
-
-        private void OnDisable()
-        {
-            if (ReferencedAsioAudioManager)
-            {
-                Stop();
-                ReferencedAsioAudioManager.RequestRemoveAsioAudioSource(this);
-                SourceSampleProvider = null;
-            }
+            if (SourceSampleProvider == null) AddThisAsValidAsioAudioSource(ReferencedAsioAudioManager);
         }
 
         private void Start()
         {
-            OnParameterChanged.AddListener(() => AddThisAsValidAsioAudioSource(ReferencedAsioAudioManager));
+            OnAudioFilePathChanged.AddListener(delegate { AddThisAsValidAsioAudioSource(ReferencedAsioAudioManager); });
+            OnTargetOutputChannelChanged.AddListener(delegate { AddThisAsValidAsioAudioSource(ReferencedAsioAudioManager); });
         }
 
         private bool AddThisAsValidAsioAudioSource(AsioAudioManager asioAudioManager = null)
         {
+            
             if (asioAudioManager != null) 
             {
-                if (asioAudioManager.RequestValidationAsioAudioSource(this)) return GetAudioSamplesFromFileName(true, true, true);
+                if (asioAudioManager.RequestValidationAsioAudioSource(this))
+                {
+                    bool returnValue = GetAudioSamplesFromFileName(true, true, true);
+                    if (AudioStatus == AsioAudioStatus.Playing || AudioStatus == AsioAudioStatus.Paused) Stop();
+                    return returnValue;
+                }
             }
             else
             {
                 AsioAudioManager asioAudioManagerInScene = FindFirstObjectByType<AsioAudioManager>();
-                if (asioAudioManagerInScene != null && asioAudioManagerInScene.RequestValidationAsioAudioSource(this)) return GetAudioSamplesFromFileName(true, true, true);
+                if (asioAudioManagerInScene != null && asioAudioManagerInScene.RequestValidationAsioAudioSource(this))
+                {
+                    bool returnValue = GetAudioSamplesFromFileName(true, true, true);
+                    if (AudioStatus == AsioAudioStatus.Playing || AudioStatus == AsioAudioStatus.Paused) Stop();
+                    return returnValue;
+                }
             }
             return false;
         }
@@ -274,10 +296,15 @@ namespace AsioAudioUnity
             {
                 throw new NullReferenceException("The audio samples in SourceSampleProvider are not set.");
             }
+
             if (AudioFilePath == null || !File.Exists(AudioFilePath))
             {
                 throw new NullReferenceException("The audio file path is either undefined or invalid.");
             }
+
+            if (AudioFilePathOriginal == null) AudioFilePathOriginal = String.Copy(GetNotConvertedPath(AudioFilePath));
+            else if (GetNotConvertedPath(AudioFilePath) != AudioFilePathOriginal) AudioFilePathOriginal = String.Copy(GetNotConvertedPath(AudioFilePath));
+
             if (sampleRate == SourceSampleProvider.WaveFormat.SampleRate)
             {
                 UnityEngine.Debug.LogWarning("The sample rate of the file is already " + sampleRate + " Hz. No conversion needed.");
@@ -298,8 +325,28 @@ namespace AsioAudioUnity
                 ISampleProvider resampler = new WdlResamplingSampleProvider(SourceSampleProvider, sampleRate);
                 WaveFileWriter.CreateWaveFile16(audioFilePathConverted, resampler);
             }
-            AudioFilePath = audioFilePathConverted;
+            
+            if (AudioFilePath != audioFilePathConverted) AudioFilePath = audioFilePathConverted;
             SourceSampleProvider = new AudioFileReader(AudioFilePath);
+        }
+
+        private string GetNotConvertedPath(string audioFilePath)
+        {
+            if (string.IsNullOrEmpty(audioFilePath)) return null;
+
+            string fileName = Path.GetFileNameWithoutExtension(audioFilePath);
+            string[] parts = fileName.Split("_");
+
+            string originalAudioFilePath = Path.GetDirectoryName(audioFilePath) + string.Join("_", parts.Take(parts.Length - 1)) + Path.GetExtension(audioFilePath);
+            if (File.Exists(originalAudioFilePath) && int.TryParse(parts[^1], out _)) 
+            {
+                if (new AudioFileReader(audioFilePath).WaveFormat.SampleRate == int.Parse(parts[^1]))
+                {
+                    return originalAudioFilePath;
+                }
+            }
+
+            return audioFilePath;
         }
 
         private void ConvertToMono()
@@ -399,26 +446,43 @@ namespace AsioAudioUnity
             if (ReferencedAsioAudioManager == null)
             {
                 UnityEngine.Debug.LogError("Can't update status " + newAsioAudioStatus + ", because the referenced ASIO Audio Manager from this source (" + gameObject.name + ") is not set.");
+                if (AudioStatus == AsioAudioStatus.Playing && newAsioAudioStatus != AsioAudioStatus.Playing) AudioStatus = newAsioAudioStatus;
                 return;
             }
             if (ReferencedAsioAudioManager.AsioOutPlayer == null)
             {
                 UnityEngine.Debug.LogError("Can't update status " + newAsioAudioStatus + ", because the ASIO driver from the referenced ASIO Audio Manager from this source (" + gameObject.name + ") is not set.");
+                if (AudioStatus == AsioAudioStatus.Playing && newAsioAudioStatus != AsioAudioStatus.Playing) AudioStatus = newAsioAudioStatus;
                 return;
             }
 
             ReferencedAsioAudioManager.AsioOutPlayer.Stop();
             ReferencedAsioAudioManager.AsioOutPlayer.Dispose();
 
-            ReferencedAsioAudioManager.SetAllAsioAudioSourceSampleOffsets();
+            ReferencedAsioAudioManager.SetAllAsioAudioSourceSampleOffsets(false);
 
             AudioStatus = newAsioAudioStatus;
 
             ReferencedAsioAudioManager.ConnectMixAndPlay();
         }
+
+        private void OnDisable()
+        {
+            if (ReferencedAsioAudioManager)
+            {
+                Stop();
+                ReferencedAsioAudioManager.RequestRemoveAsioAudioSource(this);
+            }
+            SourceSampleProvider = null;
+        }
+
         private void OnApplicationQuit()
         {
-            if (ReferencedAsioAudioManager) ReferencedAsioAudioManager.RequestRemoveAsioAudioSource(this);
+            if (ReferencedAsioAudioManager)
+            {
+                ReferencedAsioAudioManager.RequestRemoveAsioAudioSource(this);
+            }
+            SourceSampleProvider = null;
         }
     }
 }
