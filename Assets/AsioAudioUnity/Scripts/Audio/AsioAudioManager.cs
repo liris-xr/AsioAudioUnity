@@ -1,11 +1,11 @@
 using System;
+using System.IO;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
+using UnityEngine.Events;
 using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
-using System.IO;
-using UnityEngine.Events;
 
 namespace AsioAudioUnity
 {
@@ -91,6 +91,7 @@ namespace AsioAudioUnity
             get { return _displayInfoOnGameWindow; }
             set { _displayInfoOnGameWindow = value; }
         }
+
         private bool _displayModeClear = false;
         private string _connectionStatusGUI = "";
         private int _currentAsioAudioSourceGUIIndex = 0;
@@ -275,7 +276,8 @@ namespace AsioAudioUnity
             _asioDriverNameGUI = AsioDriverName;
             _targetSampleRateGUI = TargetSampleRate.ToString();
             _targetBitsPerSampleGUI = ((int)TargetBitsPerSample).ToString();
-            if (!ConnectToAsioDriver()) return;
+
+            ConnectToAsioDriver();
         }
 
         private void Start()
@@ -300,14 +302,13 @@ namespace AsioAudioUnity
         }
 
         /// <summary>
-        /// Establish the connection to a specified ASIO driver, whose name is set on AsioDriverName property.
+        /// Intialise AsioOutPlayer by establishing the connection to a specified ASIO driver, whose name is set on AsioDriverName property.
         /// </summary>
-        private bool ConnectToAsioDriver()
+        private void ConnectToAsioDriver()
         {
             if (string.IsNullOrEmpty(AsioDriverName))
             {
-                Debug.LogError("The ASIO driver was not specified.");
-                return false;
+                throw new Exception("The ASIO driver was not specified.");
             }
 
             AsioOut asioOutPlayer;
@@ -321,7 +322,7 @@ namespace AsioAudioUnity
                         asioOutPlayer = new AsioOut(driverName);
                         AsioDriverInputChannelCount = asioOutPlayer.DriverInputChannelCount;
                         AsioOutPlayer = asioOutPlayer;
-                        return true;
+                        return;
                     }
                     catch (Exception e)
                     {
@@ -331,8 +332,7 @@ namespace AsioAudioUnity
                 }
             }
             AsioOutPlayer = null;
-            Debug.LogError("The ASIO driver \"" + AsioDriverName + "\" was not found on the system.");
-            return false;
+            throw new Exception("The ASIO driver \"" + AsioDriverName + "\" was not found on the system.");
         }
 
         /// <summary>
@@ -398,14 +398,12 @@ namespace AsioAudioUnity
         {
             if (CustomAsioAudioSources.Count > AsioDriverInputChannelCount)
             {
-                Debug.LogError("There is more audio channels from all ASIO Audio Sources (" + CustomAsioAudioSources.Count + ") than there is input channels on the ASIO driver (" + AsioDriverInputChannelCount + ")." +
+                throw new Exception("There is more audio channels from all ASIO Audio Sources (" + CustomAsioAudioSources.Count + ") than there is input channels on the ASIO driver (" + AsioDriverInputChannelCount + ")." +
                     "Consider removing ASIO Audio Sources or reducing the amount of input channels (TargetSampleChannelCount) per track in an ASIO Audio Source.");
-                return;
             }
             if (CustomAsioAudioSources.Select((customAsioAudioSource) => customAsioAudioSource.TargetOutputChannel).Distinct().Count() != CustomAsioAudioSources.Count)
             {
-                Debug.LogError("There are ASIO Audio Sources with the same Target Output Channel. Each ASIO Audio Source must have a unique Target Output Channel.");
-                return;
+                throw new Exception("There are ASIO Audio Sources with the same Target Output Channel. Each ASIO Audio Source must have a unique Target Output Channel.");
             }
 
             // Step 1: Get all the Sample Providers from the ASIO Audio Sources, convert them to Wave Providers (to manage silenced sources), and store them in a dictionary
@@ -418,19 +416,14 @@ namespace AsioAudioUnity
 
                 if (customAsioAudioSourceFound != null)
                 {
-                    if (customAsioAudioSourceFound.SourceSampleProvider == null)
+                    if (customAsioAudioSourceFound.SourceWaveProvider == null)
                     {
                         throw new NullReferenceException("Cannot create the Global Sample Provider because the Sample Provider of the ASIO Audio Source attached to GameObject \"" + customAsioAudioSourceFound.gameObject.name + "\" is not yet set. The process will be aborted.");
                     }
                     else
                     {
-                        if (customAsioAudioSourceFound.AudioStatus == AsioAudioStatus.Playing)
-                        {
-                            if (TargetBitsPerSample == BitsPerSample.Bits32) asioSourcesWaveProviders.Add(customAsioAudioSourceFound.SourceSampleProvider.ToWaveProvider());
-                            else if (TargetBitsPerSample == BitsPerSample.Bits16) asioSourcesWaveProviders.Add(customAsioAudioSourceFound.SourceSampleProvider.ToWaveProvider16());
-                        }
-                        else asioSourcesWaveProviders.Add(new SilenceProvider(customAsioAudioSourceFound.SourceSampleProvider.WaveFormat));
-                        
+                        if (customAsioAudioSourceFound.AudioStatus == AsioAudioStatus.Playing) asioSourcesWaveProviders.Add(customAsioAudioSourceFound.SourceWaveProvider);
+                        else asioSourcesWaveProviders.Add(new SilenceProvider(customAsioAudioSourceFound.SourceWaveProvider.WaveFormat));
                     }
                 }
                 else asioSourcesWaveProviders.Add(new SilenceProvider(new WaveFormat(TargetSampleRate, (int)TargetBitsPerSample, 1)));
@@ -456,6 +449,7 @@ namespace AsioAudioUnity
         /// <summary>
         /// Redefine all ASIO Audio Sources samples providers with offsets.
         /// </summary>
+        /// <param name="reinitialiseSamples">True if the samples need to be reinitialised.</param>
         public void SetAllAsioAudioSourceSampleOffsets(bool reinitialiseSamples)
         {
             // Get the data before updating the status of sounds to play
@@ -464,32 +458,41 @@ namespace AsioAudioUnity
                 if (reinitialiseSamples && customAsioAudioSource.AudioFilePathOriginal != null) customAsioAudioSource.AudioFilePath = String.Copy(customAsioAudioSource.AudioFilePathOriginal);
                 customAsioAudioSource.SetAudioSamplesFromFileName(reinitialiseSamples, reinitialiseSamples, true);
 
-                customAsioAudioSource.SourceSampleProvider = new OffsetSampleProvider(customAsioAudioSource.SourceSampleProvider)
+                ISampleProvider offsetSampleProvider = new OffsetSampleProvider(customAsioAudioSource.SourceWaveProvider.ToSampleProvider())
                 {
-                    SkipOver = TimeSpan.FromSeconds(customAsioAudioSource.ActualTimestamp)
+                    SkipOver = TimeSpan.FromSeconds(customAsioAudioSource.CurrentTimestamp)
                 };
+
+                if (TargetBitsPerSample == BitsPerSample.Bits16) customAsioAudioSource.SourceWaveProvider = offsetSampleProvider.ToWaveProvider16();
+                if (TargetBitsPerSample == BitsPerSample.Bits32) customAsioAudioSource.SourceWaveProvider = offsetSampleProvider.ToWaveProvider();
             }
         }
 
         /// <summary>
-        /// Connect to the referenced ASIO driver, set the global mixed audio sample provider from all ASIO Audio Sources, and play the ASIO Audio Sources marked as Playing.
+        /// Connect to the referenced ASIO driver, set the global multiplexing provider from all ASIO Audio Sources, and play the ASIO Audio Sources marked as Playing.
         /// </summary>
         public void ConnectMixAndPlay()
         {
-            if (!ConnectToAsioDriver())
-            {
-                foreach (CustomAsioAudioSource customAsioAudioSource in CustomAsioAudioSources) customAsioAudioSource.Pause();
-                return;
-            }
-            SetGlobalMultiplexingWaveProvider();
             try
             {
+                if (AsioOutPlayer != null)
+                {
+                    AsioOutPlayer.Stop();
+                    AsioOutPlayer.Dispose();
+                    AsioOutPlayer = null;
+                }
+
+                ConnectToAsioDriver();
+
+                SetAllAsioAudioSourceSampleOffsets(false);
+
+                SetGlobalMultiplexingWaveProvider();
+
                 AsioOutPlayer.Init(GlobalMultiplexingWaveProvider);
                 AsioOutPlayer.Play();
             }
             catch (Exception e)
             {
-                foreach (CustomAsioAudioSource customAsioAudioSource in CustomAsioAudioSources) customAsioAudioSource.Pause();
                 throw e.GetBaseException();
             }
         }

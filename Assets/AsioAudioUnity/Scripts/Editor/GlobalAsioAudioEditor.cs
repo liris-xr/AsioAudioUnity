@@ -36,7 +36,7 @@ namespace AsioAudioUnity
 
             // Define Loop and Play On Awake properties
             audioSourceToConvertGameObject.GetComponent<CustomAsioAudioSource>().Loop = audioSourceToConvert.loop;
-            audioSourceToConvertGameObject.GetComponent<CustomAsioAudioSource>().PlayOnAwake = audioSourceToConvert.playOnAwake;
+            audioSourceToConvertGameObject.GetComponent<CustomAsioAudioSource>().PlayOnEnable = audioSourceToConvert.playOnAwake;
 
             // Remove this audio source (first in list, then destroy)
             allBasicAudioSources.ToList().Remove(audioSourceToConvert);
