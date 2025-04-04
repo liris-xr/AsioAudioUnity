@@ -211,7 +211,7 @@ namespace AsioAudioUnity
         {
             if (asioAudioManager != null) 
             {
-                if (asioAudioManager.RequestValidationAsioAudioSource(this))
+                if (asioAudioManager.RequestAddAsioAudioSource(this))
                 {
                     bool returnValue = SetAudioSamplesFromFileName(true, true, true);
                     if (AudioStatus == AsioAudioStatus.Playing || AudioStatus == AsioAudioStatus.Paused) Stop();
@@ -221,7 +221,7 @@ namespace AsioAudioUnity
             else
             {
                 AsioAudioManager asioAudioManagerInScene = FindFirstObjectByType<AsioAudioManager>();
-                if (asioAudioManagerInScene != null && asioAudioManagerInScene.RequestValidationAsioAudioSource(this))
+                if (asioAudioManagerInScene != null && asioAudioManagerInScene.RequestAddAsioAudioSource(this))
                 {
                     bool returnValue = SetAudioSamplesFromFileName(true, true, true);
                     if (AudioStatus == AsioAudioStatus.Playing || AudioStatus == AsioAudioStatus.Paused) Stop();
@@ -249,7 +249,12 @@ namespace AsioAudioUnity
             if (CurrentTimestamp >= AudioFileTotalLength)
             {
                 if (Loop) Restart();
-                else Stop();
+                else
+                {
+                    AudioStatus = AsioAudioStatus.Stopped;
+                    CurrentTimestamp = 0;
+                    InternalStopwatch.Reset();
+                }
             }
         }
 

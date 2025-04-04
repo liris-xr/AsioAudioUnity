@@ -336,11 +336,11 @@ namespace AsioAudioUnity
         }
 
         /// <summary>
-        /// Check if the ASIO Audio Source is valid for processing.
+        /// Check if the ASIO Audio Source is valid, returns true if added to the list of ASIO Audio Sources, false otherwise.
         /// </summary>
         /// <param name="customAsioAudioSource">The ASIO Audio Source to check.</param>
         /// <returns></returns>
-        public bool RequestValidationAsioAudioSource(CustomAsioAudioSource customAsioAudioSource)
+        public bool RequestAddAsioAudioSource(CustomAsioAudioSource customAsioAudioSource)
         {
             // Check if file name is empty
             if (string.IsNullOrEmpty(customAsioAudioSource.AudioFilePath))
@@ -376,7 +376,7 @@ namespace AsioAudioUnity
         }
 
         /// <summary>
-        /// Remove an ASIO Audio Source from the list of ASIO Audio Sources.
+        /// Remove an ASIO Audio Source from the list of ASIO Audio Sources, returns true if removed, false otherwise.
         /// </summary>
         /// <param name="customAsioAudioSource">The ASIO Audio Source to remove.</param>
         /// <returns></returns>
@@ -406,13 +406,12 @@ namespace AsioAudioUnity
                 throw new Exception("There are ASIO Audio Sources with the same Target Output Channel. Each ASIO Audio Source must have a unique Target Output Channel.");
             }
 
-            // Step 1: Get all the Sample Providers from the ASIO Audio Sources, convert them to Wave Providers (to manage silenced sources), and store them in a dictionary
-            List<IWaveProvider> asioSourcesWaveProviders = new List<IWaveProvider>();
             int numberOfOutputChannels = CustomAsioAudioSources.Max((customAsioAudioSource) => customAsioAudioSource.TargetOutputChannel);
+            IWaveProvider[] asioSourcesWaveProviders = new IWaveProvider[numberOfOutputChannels];
 
             for (int i = 0; i < numberOfOutputChannels; i++)
             {
-                CustomAsioAudioSource customAsioAudioSourceFound = CustomAsioAudioSources.Find((CustomAsioAudioSource) => CustomAsioAudioSource.TargetOutputChannel == i + 1);
+                CustomAsioAudioSource customAsioAudioSourceFound = CustomAsioAudioSources.Find((customAsioAudioSource) => customAsioAudioSource.TargetOutputChannel == i + 1);
 
                 if (customAsioAudioSourceFound != null)
                 {
@@ -422,18 +421,23 @@ namespace AsioAudioUnity
                     }
                     else
                     {
-                        if (customAsioAudioSourceFound.AudioStatus == AsioAudioStatus.Playing) asioSourcesWaveProviders.Add(customAsioAudioSourceFound.SourceWaveProvider);
-                        else asioSourcesWaveProviders.Add(new SilenceProvider(customAsioAudioSourceFound.SourceWaveProvider.WaveFormat));
+                        Debug.Log(customAsioAudioSourceFound.SourceWaveProvider.WaveFormat.Encoding);
+                        if (customAsioAudioSourceFound.AudioStatus == AsioAudioStatus.Playing) asioSourcesWaveProviders[i] = customAsioAudioSourceFound.SourceWaveProvider;
+                        else asioSourcesWaveProviders[i] = new SilenceProvider(customAsioAudioSourceFound.SourceWaveProvider.WaveFormat);
                     }
                 }
-                else asioSourcesWaveProviders.Add(new SilenceProvider(new WaveFormat(TargetSampleRate, (int)TargetBitsPerSample, 1)));
+                else
+                {
+                    if (TargetBitsPerSample == BitsPerSample.Bits16) asioSourcesWaveProviders[i] = new SilenceProvider(new WaveFormat(TargetSampleRate, 1));
+                    if (TargetBitsPerSample == BitsPerSample.Bits32) asioSourcesWaveProviders[i] = new SilenceProvider(WaveFormat.CreateIeeeFloatWaveFormat(TargetSampleRate, 1));
+                }
             }
+
             try
             {
-                // Step 2: Use the dictionary to connect the input channels of the ASIO driver to the output channels of the ASIO Audio Sources
-                GlobalMultiplexingWaveProvider = new MultiplexingWaveProvider(asioSourcesWaveProviders, asioSourcesWaveProviders.Count);
+                GlobalMultiplexingWaveProvider = new MultiplexingWaveProvider(asioSourcesWaveProviders, -1);
 
-                for (int i = 0; i < asioSourcesWaveProviders.Count; i++)
+                for (int i = 0; i < asioSourcesWaveProviders.Length; i++)
                 {
                     GlobalMultiplexingWaveProvider.ConnectInputToOutput(i, i);
                 }
