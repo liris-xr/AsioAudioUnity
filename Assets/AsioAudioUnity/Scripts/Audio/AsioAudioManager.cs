@@ -282,22 +282,22 @@ namespace AsioAudioUnity
 
         private void Start()
         {
-            OnAsioDriverNameChanged.AddListener(delegate { ResetDriverAndSamples(); });
-            OnTargetSampleRateChanged.AddListener(delegate { ResetDriverAndSamples(); });
-            OnTargetBitsPerSampleChanged.AddListener(delegate { ResetDriverAndSamples(); });
+            OnAsioDriverNameChanged.AddListener(ResetDriverAndSamples);
+            OnTargetSampleRateChanged.AddListener(ResetDriverAndSamples);
+            OnTargetBitsPerSampleChanged.AddListener(ResetDriverAndSamples);
         }
 
         private void ResetDriverAndSamples()
         {
-            if (CustomAsioAudioSources != null)
-            {
-                SetAllAsioAudioSourceSampleOffsets(true);
-            }
             if (AsioOutPlayer != null)
             {
                 AsioOutPlayer.Stop();
                 AsioOutPlayer.Dispose();
+                AsioOutPlayer = null;
             }
+
+            SetAllAsioAudioSourceSampleOffsets(true);
+
             ConnectMixAndPlay();
         }
 
@@ -421,7 +421,6 @@ namespace AsioAudioUnity
                     }
                     else
                     {
-                        Debug.Log(customAsioAudioSourceFound.SourceWaveProvider.WaveFormat.Encoding);
                         if (customAsioAudioSourceFound.AudioStatus == AsioAudioStatus.Playing) asioSourcesWaveProviders[i] = customAsioAudioSourceFound.SourceWaveProvider;
                         else asioSourcesWaveProviders[i] = new SilenceProvider(customAsioAudioSourceFound.SourceWaveProvider.WaveFormat);
                     }
@@ -459,7 +458,7 @@ namespace AsioAudioUnity
             // Get the data before updating the status of sounds to play
             foreach (CustomAsioAudioSource customAsioAudioSource in CustomAsioAudioSources)
             {
-                if (reinitialiseSamples && customAsioAudioSource.AudioFilePathOriginal != null) customAsioAudioSource.AudioFilePath = String.Copy(customAsioAudioSource.AudioFilePathOriginal);
+                //if (reinitialiseSamples && customAsioAudioSource.OriginalAudioFilePath != null) customAsioAudioSource.AudioFilePath = String.Copy(customAsioAudioSource.OriginalAudioFilePath);
                 customAsioAudioSource.SetAudioSamplesFromFileName(reinitialiseSamples, reinitialiseSamples, true);
 
                 ISampleProvider offsetSampleProvider = new OffsetSampleProvider(customAsioAudioSource.SourceWaveProvider.ToSampleProvider())
