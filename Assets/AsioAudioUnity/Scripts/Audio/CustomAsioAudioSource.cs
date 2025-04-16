@@ -7,7 +7,6 @@ using UnityEngine;
 using UnityEngine.Events;
 using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
-using Unity.VisualScripting.Dependencies.NCalc;
 
 namespace AsioAudioUnity
 {
@@ -66,6 +65,26 @@ namespace AsioAudioUnity
         {
             get { return _referencedAsioAudioManager; }
             set { _referencedAsioAudioManager = value; }
+        }
+
+        private UnityEvent _onVolumeChanged;
+        public UnityEvent OnVolumeChanged
+        {
+            get { return _onVolumeChanged; }
+            private set { _onVolumeChanged = value; }
+        }
+
+        [SerializeField][Range(0f, 1f)] private float _volume = 1f;
+        public float Volume
+        {
+            get { return _volume; }
+            set 
+            {
+                if (_volume == value) return;
+                _volume = value; 
+                if (OnVolumeChanged != null)
+                    OnVolumeChanged.Invoke();
+            }
         }
 
         [SerializeField] private bool _playOnEnable = true;
@@ -184,6 +203,7 @@ namespace AsioAudioUnity
         {
             OnAudioFilePathChanged = new UnityEvent();
             OnTargetOutputChannelChanged = new UnityEvent();
+            OnVolumeChanged = new UnityEvent();
 
             OnPlay = new UnityEvent();
             OnStop = new UnityEvent();
@@ -196,24 +216,25 @@ namespace AsioAudioUnity
         {
             if (SourceWaveProvider == null)
             {
-                bool audioSourceIsValid = AddThisAsValidAsioAudioSource(ReferencedAsioAudioManager);
+                bool audioSourceIsValid = AddThisAsValidAsioAudioSource(ReferencedAsioAudioManager, true);
                 if (audioSourceIsValid && PlayOnEnable) StartCoroutine(PlayOnEnableCoroutine());
             }
         }
 
         private void Start()
         {
-            OnAudioFilePathChanged.AddListener(delegate { AddThisAsValidAsioAudioSource(ReferencedAsioAudioManager); });
-            OnTargetOutputChannelChanged.AddListener(delegate { AddThisAsValidAsioAudioSource(ReferencedAsioAudioManager); });
+            OnAudioFilePathChanged.AddListener(delegate { AddThisAsValidAsioAudioSource(ReferencedAsioAudioManager, true); });
+            OnTargetOutputChannelChanged.AddListener(delegate { AddThisAsValidAsioAudioSource(ReferencedAsioAudioManager, false); });
+            OnVolumeChanged.AddListener(delegate { AddThisAsValidAsioAudioSource(ReferencedAsioAudioManager, false); });
         }
 
-        private bool AddThisAsValidAsioAudioSource(AsioAudioManager asioAudioManager = null)
+        private bool AddThisAsValidAsioAudioSource(AsioAudioManager asioAudioManager = null, bool reinitializeSamples = false)
         {
             if (asioAudioManager != null) 
             {
                 if (asioAudioManager.RequestAddAsioAudioSource(this))
                 {
-                    bool returnValue = SetAudioSamplesFromFileName(true, true, true);
+                    bool returnValue = SetSourceWaveProviderFromFileName(reinitializeSamples, true);
                     if (AudioStatus == AsioAudioStatus.Playing || AudioStatus == AsioAudioStatus.Paused) Stop();
                     return returnValue;
                 }
@@ -223,7 +244,7 @@ namespace AsioAudioUnity
                 AsioAudioManager asioAudioManagerInScene = FindFirstObjectByType<AsioAudioManager>();
                 if (asioAudioManagerInScene != null && asioAudioManagerInScene.RequestAddAsioAudioSource(this))
                 {
-                    bool returnValue = SetAudioSamplesFromFileName(true, true, true);
+                    bool returnValue = SetSourceWaveProviderFromFileName(reinitializeSamples, true);
                     if (AudioStatus == AsioAudioStatus.Playing || AudioStatus == AsioAudioStatus.Paused) Stop();
                     return returnValue;
                 }
@@ -259,12 +280,11 @@ namespace AsioAudioUnity
         }
 
         /// <summary>
-        /// Get the ASIO Audio Source samples with the audio file specified in the Audio File Name field, retruns true if correctly get.
+        /// Set the SourceWaveProvider from the audio file path specified in the AudioFilePath field, returns true if correctly set.
         /// </summary>
-        /// <param name="convertSampleRateToNewFile">Convert the audio file to the target sample rate specified in the ASIO Audio Manager to a new file.</param>
-        /// <param name="getAudioFileLength">Get the total length of the audio file and put the value in AudioFileTotalLength.</param>
+        /// <param name="convertSampleRateAndBitsPerSampleToNewFile">Convert the audio file to the target sample rate specified in the ASIO Audio Manager to a new file.</param>
         /// <param name="convertToMono">Convert audio samples to be mixed into one channel (only works for stereo samples).</param>
-        public bool SetAudioSamplesFromFileName(bool convertSampleRateAndBitsPerSampleToNewFile = false, bool getAudioFileLength = false, bool convertToMono = false)
+        public bool SetSourceWaveProviderFromFileName(bool convertSampleRateAndBitsPerSampleToNewFile = false, bool convertToMono = false)
         {
             if (string.IsNullOrEmpty(AudioFilePath))
             {
@@ -275,7 +295,7 @@ namespace AsioAudioUnity
             if (!File.Exists(AudioFilePath))
             {
                 UnityEngine.Debug.LogError("The ASIO Audio Source attached to GameObject " + gameObject.name + " has an invalid Audio File Name specified. It will be ignored.");
-
+                return false;
             }
 
             if (ReferencedAsioAudioManager == null)
@@ -292,19 +312,21 @@ namespace AsioAudioUnity
 
             if (convertSampleRateAndBitsPerSampleToNewFile)
             {
-                if (ReferencedAsioAudioManager) ConvertAudioSamples(ReferencedAsioAudioManager.TargetSampleRate, (int)ReferencedAsioAudioManager.TargetBitsPerSample);
+                if (ReferencedAsioAudioManager) SourceWaveProvider = ConvertSamplesAndCreateNewAudioFile(SourceWaveProvider, ReferencedAsioAudioManager.TargetSampleRate, (int)ReferencedAsioAudioManager.TargetBitsPerSample);
                 else UnityEngine.Debug.LogWarning("The argument convertSampleRateAndBitsPerSampleToNewFile is set to true, but the ASIO Audio Manager (where the TargetSampleRate and TargetBitsPerSample properties are defined) is not referenced. The sample rate and bits per sample will not be converted.");
             }
 
-            if (getAudioFileLength) GetAudioFileTotalLength();
+            GetAudioFileTotalLength();
 
             if (convertToMono)
             {
-                if (ReferencedAsioAudioManager) ConvertToMono((int)ReferencedAsioAudioManager.TargetBitsPerSample);
+                if (ReferencedAsioAudioManager) SourceWaveProvider = ConvertSamplesToMono(SourceWaveProvider, (int)ReferencedAsioAudioManager.TargetBitsPerSample);
                 else UnityEngine.Debug.LogWarning("The argument convertToMono is set to true, but the ASIO Audio Manager (where the TargetBitsPerSample property is defined) is not referenced. The audio samples will not be converted to mono.");
             }
 
-            GetWaveFormatProperties();
+            SourceWaveProvider = SetSamplesVolume(SourceWaveProvider, Volume);
+
+            GetWaveFormatProperties(SourceWaveProvider);
 
             return true;
         }
@@ -312,23 +334,25 @@ namespace AsioAudioUnity
         /// <summary>
         /// Convert audio samples to the target sample rate specified in argument, and store them in a new audio file.
         /// </summary>
+        /// <param name="waveProvider">The audio samples to convert.</param>
         /// <param name="sampleRate">The targeted sample rate.</param>
-        public void ConvertAudioSamples(int sampleRate, int bitsPerSample)
+        /// <param name="bitsPerSample">The targeted bits per sample.</param>
+        public IWaveProvider ConvertSamplesAndCreateNewAudioFile(IWaveProvider waveProvider, int sampleRate, int bitsPerSample)
         {
             if (OriginalAudioFilePath == null || !File.Exists(OriginalAudioFilePath))
             {
                 throw new Exception("The audio file path is either undefined or invalid.");
             }
 
-            if (SourceWaveProvider == null)
+            if (waveProvider == null)
             {
                 throw new Exception("The audio samples in SourceWaveProvider are not set.");
             }
 
-            if (SourceWaveProvider.WaveFormat.SampleRate == sampleRate && SourceWaveProvider.WaveFormat.BitsPerSample == bitsPerSample)
+            if (waveProvider.WaveFormat.SampleRate == sampleRate && waveProvider.WaveFormat.BitsPerSample == bitsPerSample)
             {
                 UnityEngine.Debug.LogWarning("The registered samples have a sample rate that is already " + sampleRate + " Hz and bits per sample of " + bitsPerSample + " bits. No conversion needed.");
-                return;
+                return waveProvider;
             }
 
             string audioFilePathConverted = Path.GetDirectoryName(OriginalAudioFilePath) + "\\" + Path.GetFileNameWithoutExtension(OriginalAudioFilePath) + "_" + sampleRate + "_" + bitsPerSample + Path.GetExtension(OriginalAudioFilePath);
@@ -336,7 +360,7 @@ namespace AsioAudioUnity
             if(audioFilePathConverted == AudioFilePath)
             {
                 UnityEngine.Debug.LogWarning("The file path used for conversion is the same as the original file path. No conversion will be applied.");
-                return;
+                return waveProvider;
             }
 
             if (File.Exists(audioFilePathConverted))
@@ -356,13 +380,13 @@ namespace AsioAudioUnity
                     existingWaveProvider = null;
 
                     File.Delete(audioFilePathConverted);
-                    ConvertWaveProviderToFile(SourceWaveProvider, audioFilePathConverted, sampleRate, bitsPerSample);
+                    WriteWaveProviderToFile(waveProvider, audioFilePathConverted, sampleRate, bitsPerSample);
                 }
             }
-            else ConvertWaveProviderToFile(SourceWaveProvider, audioFilePathConverted, sampleRate, bitsPerSample);
+            else WriteWaveProviderToFile(waveProvider, audioFilePathConverted, sampleRate, bitsPerSample);
             
             AudioFilePath = audioFilePathConverted;
-            SourceWaveProvider = new AudioFileReader(AudioFilePath);
+            return new AudioFileReader(AudioFilePath);
         }
 
         private void GetAudioFileTotalLength()
@@ -373,7 +397,7 @@ namespace AsioAudioUnity
                 return;
             }
 
-            if (SourceWaveProvider.GetType() != typeof(AudioFileReader))
+            if (SourceWaveProvider is not AudioFileReader)
             {
                 UnityEngine.Debug.LogError("The audio samples are not from an AudioFileReader.");
                 return;
@@ -406,7 +430,7 @@ namespace AsioAudioUnity
             return audioFilePath;
         }
 
-        private void ConvertWaveProviderToFile(IWaveProvider originalWaveProvider, string targetFilePath, int sampleRate = 0, int bitsPerSample = 0)
+        private void WriteWaveProviderToFile(IWaveProvider originalWaveProvider, string targetFilePath, int sampleRate = 0, int bitsPerSample = 0)
         {
             if (originalWaveProvider == null)
             {
@@ -421,12 +445,14 @@ namespace AsioAudioUnity
 
                 if (bitsPerSample == 16)
                 {
-                    convertedWaveProvider = originalWaveProvider.ToSampleProvider().ToWaveProvider16();
+                    if (originalWaveProvider.WaveFormat.BitsPerSample != 16) convertedWaveProvider = originalWaveProvider.ToSampleProvider().ToWaveProvider16();
+                    else convertedWaveProvider = originalWaveProvider;
                     WaveFileWriter.CreateWaveFile16(targetFilePath, convertedWaveProvider.ToSampleProvider());
                 }
                 else if (bitsPerSample == 32)
                 {
-                    convertedWaveProvider = originalWaveProvider.ToSampleProvider().ToWaveProvider();
+                    if (originalWaveProvider.WaveFormat.BitsPerSample != 32) convertedWaveProvider = originalWaveProvider.ToSampleProvider().ToWaveProvider();
+                    else convertedWaveProvider = originalWaveProvider;
                     WaveFileWriter.CreateWaveFile(targetFilePath, convertedWaveProvider);
                 }
                 else
@@ -456,38 +482,71 @@ namespace AsioAudioUnity
             }
         }
 
-        private void ConvertToMono(int bitsPerSample)
+        private IWaveProvider ConvertSamplesToMono(IWaveProvider waveProvider, int bitsPerSample)
         {
-            if (SourceWaveProvider == null)
+            if (waveProvider == null)
             {
                 UnityEngine.Debug.LogError("The audio samples are not set.");
-                return;
+                return waveProvider;
             }
-            if (SourceWaveProvider.WaveFormat.Channels != 2)
+
+            if (waveProvider.WaveFormat.Channels == 1) return waveProvider;
+
+            if (waveProvider.WaveFormat.Channels != 2)
             {
                 UnityEngine.Debug.LogError("The audio samples are not stereo. No conversion to mono will be applied.");
-                return;
+                return waveProvider;
             }
-            else
-            {
-                SourceWaveProvider = SourceWaveProvider.ToSampleProvider().ToMono().ToWaveProvider();
-            }
+
+            if (bitsPerSample == 16) return waveProvider.ToSampleProvider().ToMono().ToWaveProvider16();
+
+            else if (bitsPerSample == 32) return waveProvider.ToSampleProvider().ToMono().ToWaveProvider();
+
+            else throw new Exception("The bits per sample value is not supported. Please use 16 or 32.");
         }
 
-        private void GetWaveFormatProperties()
+        private void GetWaveFormatProperties(IWaveProvider waveProvider)
         {
-            if (SourceWaveProvider == null)
+            if (waveProvider == null)
             {
                 UnityEngine.Debug.LogError("The audio samples are not set.");
                 return;
             }
 
-            Channels = SourceWaveProvider.WaveFormat.Channels;
-            SampleRate = SourceWaveProvider.WaveFormat.SampleRate;
-            AverageBytesPerSecond = SourceWaveProvider.WaveFormat.AverageBytesPerSecond;
-            BlockAlign = SourceWaveProvider.WaveFormat.BlockAlign;
-            BitsPerSample = SourceWaveProvider.WaveFormat.BitsPerSample;
-            ExtraSize = SourceWaveProvider.WaveFormat.ExtraSize;
+            Channels = waveProvider.WaveFormat.Channels;
+            SampleRate = waveProvider.WaveFormat.SampleRate;
+            AverageBytesPerSecond = waveProvider.WaveFormat.AverageBytesPerSecond;
+            BlockAlign = waveProvider.WaveFormat.BlockAlign;
+            BitsPerSample = waveProvider.WaveFormat.BitsPerSample;
+            ExtraSize = waveProvider.WaveFormat.ExtraSize;
+        }
+
+        private IWaveProvider SetSamplesVolume(IWaveProvider waveProvider, float volume)
+        {
+            if (volume < 0f || volume > 1f)
+            {
+                UnityEngine.Debug.LogError("Volume must be between 0 and 1.");
+                return waveProvider;
+            }
+            if (SourceWaveProvider == null)
+            {
+                UnityEngine.Debug.LogError("Cannot set the volume because the audio samples are not set.");
+                return waveProvider;
+            }
+            if (ReferencedAsioAudioManager == null)
+            {
+                UnityEngine.Debug.LogError("Cannot set the volume because the ASIO Audio Manager is not referenced.");
+                return waveProvider;
+            }
+
+            if (ReferencedAsioAudioManager.TargetBitsPerSample == AsioAudioUnity.BitsPerSample.Bits16) 
+                return new VolumeWaveProvider16(SourceWaveProvider) { Volume = volume };
+
+            else if (ReferencedAsioAudioManager.TargetBitsPerSample == AsioAudioUnity.BitsPerSample.Bits32)
+                return new VolumeSampleProvider(SourceWaveProvider.ToSampleProvider()) { Volume = volume }.ToWaveProvider();
+
+            else throw new Exception("The bits per sample value is not supported. Please use 16 or 32.");
+            
         }
 
         /// <summary>

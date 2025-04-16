@@ -24,10 +24,18 @@ namespace AsioAudioUnity
             dropStyle.clipping = TextClipping.Clip;
             dropStyle.fontSize = 15;
 
-            GUI.Box(dropArea, ((CustomAsioAudioSource)target).AudioFilePath != null ? Path.GetFileName(((CustomAsioAudioSource)target).AudioFilePath) : "Put an audio file here", dropStyle);
-
             foreach (CustomAsioAudioSource customAsioAudioSourceTarget in targets)
             {
+                string boxFileText = "";
+                if (targets.Length > 1)
+                {
+                    if (customAsioAudioSourceTarget == targets[0]) boxFileText = "---";
+                }
+                else if (customAsioAudioSourceTarget.AudioFilePath != null) boxFileText = Path.GetFileName(customAsioAudioSourceTarget.AudioFilePath);
+                else boxFileText = "Put an audio file here";
+                
+                GUI.Box(dropArea, boxFileText, dropStyle);
+
                 // Check if a file has been dragged to this area
                 if (dropArea.Contains(Event.current.mousePosition) && DragAndDrop.paths.Length > 0)
                 {
@@ -86,7 +94,6 @@ namespace AsioAudioUnity
 
             // Display the usual inspector
             DrawDefaultInspector();
-            
 
             if(EditorGUI.EndChangeCheck())
             {

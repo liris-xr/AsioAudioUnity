@@ -6,7 +6,6 @@ namespace AsioAudioUnity
 {
     public class GlobalAsioAudioEditor : EditorWindow
     {
-
         private static AudioSource[] allBasicAudioSources = FindObjectsByType<AudioSource>(FindObjectsSortMode.InstanceID);
         private static CustomAsioAudioSource[] allCustomAsioAudioSources = FindObjectsByType<CustomAsioAudioSource>(FindObjectsSortMode.InstanceID);
 

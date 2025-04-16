@@ -47,7 +47,8 @@ MonoBehaviour:
   _audioFilePath: 
   _targetOutputChannel: 1
   _referencedAsioAudioManager: {fileID: 0}
-  _playOnAwake: 1
+  _volume: 1
+  _playOnEnable: 1
   _loop: 0
   _channels: 0
   _sampleRate: 0
@@ -57,7 +58,7 @@ MonoBehaviour:
   _extraSize: 0
   _audioFileTotalLength: 0
   _audioStatus: 0
-  _actualTimestamp: 0
+  _currentTimestamp: 0
   _onPlay:
     m_PersistentCalls:
       m_Calls: []

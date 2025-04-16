@@ -289,6 +289,7 @@ namespace AsioAudioUnity
 
         private void ResetDriverAndSamples()
         {
+            Debug.Log("OK");
             if (AsioOutPlayer != null)
             {
                 AsioOutPlayer.Stop();
@@ -458,8 +459,7 @@ namespace AsioAudioUnity
             // Get the data before updating the status of sounds to play
             foreach (CustomAsioAudioSource customAsioAudioSource in CustomAsioAudioSources)
             {
-                //if (reinitialiseSamples && customAsioAudioSource.OriginalAudioFilePath != null) customAsioAudioSource.AudioFilePath = String.Copy(customAsioAudioSource.OriginalAudioFilePath);
-                customAsioAudioSource.SetAudioSamplesFromFileName(reinitialiseSamples, reinitialiseSamples, true);
+                customAsioAudioSource.SetSourceWaveProviderFromFileName(reinitialiseSamples, true);
 
                 ISampleProvider offsetSampleProvider = new OffsetSampleProvider(customAsioAudioSource.SourceWaveProvider.ToSampleProvider())
                 {
