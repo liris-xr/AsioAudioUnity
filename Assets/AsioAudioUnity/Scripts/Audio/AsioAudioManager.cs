@@ -282,24 +282,9 @@ namespace AsioAudioUnity
 
         private void Start()
         {
-            OnAsioDriverNameChanged.AddListener(ResetDriverAndSamples);
-            OnTargetSampleRateChanged.AddListener(ResetDriverAndSamples);
-            OnTargetBitsPerSampleChanged.AddListener(ResetDriverAndSamples);
-        }
-
-        private void ResetDriverAndSamples()
-        {
-            Debug.Log("OK");
-            if (AsioOutPlayer != null)
-            {
-                AsioOutPlayer.Stop();
-                AsioOutPlayer.Dispose();
-                AsioOutPlayer = null;
-            }
-
-            SetAllAsioAudioSourceSampleOffsets(true);
-
-            ConnectMixAndPlay();
+            OnAsioDriverNameChanged.AddListener(delegate { ConnectMixAndPlay(true); });
+            OnTargetSampleRateChanged.AddListener(delegate { ConnectMixAndPlay(true); });
+            OnTargetBitsPerSampleChanged.AddListener(delegate { ConnectMixAndPlay(true); });
         }
 
         /// <summary>
@@ -451,30 +436,10 @@ namespace AsioAudioUnity
         }
 
         /// <summary>
-        /// Redefine all ASIO Audio Sources samples providers with offsets.
-        /// </summary>
-        /// <param name="reinitialiseSamples">True if the samples need to be reinitialised.</param>
-        public void SetAllAsioAudioSourceSampleOffsets(bool reinitialiseSamples)
-        {
-            // Get the data before updating the status of sounds to play
-            foreach (CustomAsioAudioSource customAsioAudioSource in CustomAsioAudioSources)
-            {
-                customAsioAudioSource.SetSourceWaveProviderFromFileName(reinitialiseSamples, true);
-
-                ISampleProvider offsetSampleProvider = new OffsetSampleProvider(customAsioAudioSource.SourceWaveProvider.ToSampleProvider())
-                {
-                    SkipOver = TimeSpan.FromSeconds(customAsioAudioSource.CurrentTimestamp)
-                };
-
-                if (TargetBitsPerSample == BitsPerSample.Bits16) customAsioAudioSource.SourceWaveProvider = offsetSampleProvider.ToWaveProvider16();
-                if (TargetBitsPerSample == BitsPerSample.Bits32) customAsioAudioSource.SourceWaveProvider = offsetSampleProvider.ToWaveProvider();
-            }
-        }
-
-        /// <summary>
         /// Connect to the referenced ASIO driver, set the global multiplexing provider from all ASIO Audio Sources, and play the ASIO Audio Sources marked as Playing.
         /// </summary>
-        public void ConnectMixAndPlay()
+        /// <param name="reinitialiseSamples"> If true, the samples will be reinitialised from the file name. If false, the samples will be kept as is.</param>
+        public void ConnectMixAndPlay(bool reinitialiseSamples)
         {
             try
             {
@@ -487,8 +452,13 @@ namespace AsioAudioUnity
 
                 ConnectToAsioDriver();
 
-                SetAllAsioAudioSourceSampleOffsets(false);
+                foreach (CustomAsioAudioSource customAsioAudioSource in CustomAsioAudioSources)
+                {
+                    customAsioAudioSource.SourceWaveProvider = null;
+                    customAsioAudioSource.SetSourceWaveProviderFromFileName(reinitialiseSamples, true, true);
+                }
 
+                GlobalMultiplexingWaveProvider = null;
                 SetGlobalMultiplexingWaveProvider();
 
                 AsioOutPlayer.Init(GlobalMultiplexingWaveProvider);

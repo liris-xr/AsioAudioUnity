@@ -234,7 +234,7 @@ namespace AsioAudioUnity
             {
                 if (asioAudioManager.RequestAddAsioAudioSource(this))
                 {
-                    bool returnValue = SetSourceWaveProviderFromFileName(reinitializeSamples, true);
+                    bool returnValue = SetSourceWaveProviderFromFileName(reinitializeSamples, true, true);
                     if (AudioStatus == AsioAudioStatus.Playing || AudioStatus == AsioAudioStatus.Paused) Stop();
                     return returnValue;
                 }
@@ -244,7 +244,7 @@ namespace AsioAudioUnity
                 AsioAudioManager asioAudioManagerInScene = FindFirstObjectByType<AsioAudioManager>();
                 if (asioAudioManagerInScene != null && asioAudioManagerInScene.RequestAddAsioAudioSource(this))
                 {
-                    bool returnValue = SetSourceWaveProviderFromFileName(reinitializeSamples, true);
+                    bool returnValue = SetSourceWaveProviderFromFileName(reinitializeSamples, true, true);
                     if (AudioStatus == AsioAudioStatus.Playing || AudioStatus == AsioAudioStatus.Paused) Stop();
                     return returnValue;
                 }
@@ -283,8 +283,9 @@ namespace AsioAudioUnity
         /// Set the SourceWaveProvider from the audio file path specified in the AudioFilePath field, returns true if correctly set.
         /// </summary>
         /// <param name="convertSampleRateAndBitsPerSampleToNewFile">Convert the audio file to the target sample rate specified in the ASIO Audio Manager to a new file.</param>
+        /// <param name="setOffsetTime">Set the offset time to the current timestamp.</param>
         /// <param name="convertToMono">Convert audio samples to be mixed into one channel (only works for stereo samples).</param>
-        public bool SetSourceWaveProviderFromFileName(bool convertSampleRateAndBitsPerSampleToNewFile = false, bool convertToMono = false)
+        public bool SetSourceWaveProviderFromFileName(bool convertSampleRateAndBitsPerSampleToNewFile = false, bool setOffsetTime = false, bool convertToMono = false)
         {
             if (string.IsNullOrEmpty(AudioFilePath))
             {
@@ -317,6 +318,8 @@ namespace AsioAudioUnity
             }
 
             GetAudioFileTotalLength();
+
+            if (setOffsetTime && CurrentTimestamp != 0) ((AudioFileReader)SourceWaveProvider).Position = (long)(CurrentTimestamp * SourceWaveProvider.WaveFormat.AverageBytesPerSecond);
 
             if (convertToMono)
             {
@@ -621,7 +624,7 @@ namespace AsioAudioUnity
             try
             {
                 AudioStatus = newAsioAudioStatus;
-                ReferencedAsioAudioManager.ConnectMixAndPlay();
+                ReferencedAsioAudioManager.ConnectMixAndPlay(false);
             }
             catch (Exception e)
             {
