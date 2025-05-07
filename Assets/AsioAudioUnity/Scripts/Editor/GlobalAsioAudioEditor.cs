@@ -33,9 +33,10 @@ namespace AsioAudioUnity
             // Define target output channel
             DefineCustomAsioAudioSourceOutputChannel(audioSourceToConvertGameObject.GetComponent<CustomAsioAudioSource>());
 
-            // Define Loop and Play On Awake properties
+            // Define Loop, Play On Enable and Volume properties
             audioSourceToConvertGameObject.GetComponent<CustomAsioAudioSource>().Loop = audioSourceToConvert.loop;
             audioSourceToConvertGameObject.GetComponent<CustomAsioAudioSource>().PlayOnEnable = audioSourceToConvert.playOnAwake;
+            audioSourceToConvertGameObject.GetComponent<CustomAsioAudioSource>().Volume = audioSourceToConvert.volume;
 
             // Remove this audio source (first in list, then destroy)
             allBasicAudioSources.ToList().Remove(audioSourceToConvert);
@@ -150,7 +151,7 @@ namespace AsioAudioUnity
                 ConvertAudioSource(basicAudioSource);
             }
 
-            if (FindObjectsByType<AudioSource>(FindObjectsSortMode.InstanceID).Length == 0) Debug.Log("All Audio Sources in scene have been converted to Custom ASIO Audio Sources.");
+            if (FindObjectsByType<AudioSource>(FindObjectsInactive.Include, FindObjectsSortMode.InstanceID).Length == 0) Debug.Log("All Audio Sources in scene have been converted to Custom ASIO Audio Sources.");
             else Debug.LogWarning("Some Audio Sources in scene have not been converted to Custom ASIO Audio Sources.");
         }
 

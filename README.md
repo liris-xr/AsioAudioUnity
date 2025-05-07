@@ -37,7 +37,7 @@ A -- OSC --> C
 A REAPER license and a Spat Revolution license (and account) are needed for this to work.
 
 Download and install REAPER [here](https://www.reaper.fm/download.php).
-> **Warning:** When installing, you will need to add the ReaRoute ASIO driver (which is not selected by default), otherwise you will not be able to retrieve ASIO data on REAPER.
+> **Warning:** On the REAPER installer, make sure you add the ReaRoute ASIO driver (which is not selected by default), otherwise you will not be able to retrieve ASIO data on REAPER.
 
 Download install Flux Center (for Spat Revolution) [here](https://www.flux.audio/download/). 
 
@@ -45,34 +45,36 @@ Download install Flux Center (for Spat Revolution) [here](https://www.flux.audio
 
 Launch REAPER, and set the ASIO inputs (using ReaRoute ASIO) :
 
-- Go to Options > Preferences, search for Device section and set the Audio System to Dummy Audio.
+- Go to *Options > Preferences*, search for *Device* section and set the Audio System to Dummy Audio.
 	> We don't want any output audio device set on REAPER, because the output will be handled by Spat Revolution.
 
-	> **Warning:** The defined sample rate has to be the same as the sample rate defined in Unity (see [Unity Section](#unity)) and in Spat Revolution (see [Spat Revolution Section](#spat-revolution)). This should be defined according to which sample rates are available on the output device.
+	> **Warning:** The defined sample rate has to be the same as the sample rate defined in Unity (see [Unity Section](#unity)) and in Spat Revolution (see [Spat Revolution Section](#spat-revolution)). This should be defined according to which sample rates are supported by the output device.
 
-- Set 4 empty tracks (using shortcut Ctrl+T) and arm the record clicking the ![Alt Text](/docs/reaperrecord.png) button.
+- Set 4 empty tracks (using shortcut Ctrl+T) and arm the record by clicking the ![Alt Text](/docs/pictures/reaperrecord.png) button.
 
-- For each track, change the record input (![Alt Text](/docs/reaperinput.png)) and set to ReaRoute inputs 1 to 4, if ReaRoute inputs are not available, check your REAPER installation and verify that ReaRoute ASIO has been checked while installing REAPER.
+- For each track, change the record input (![Alt Text](/docs/pictures/reaperinput.png)) and set to ReaRoute inputs 1 to 4, if ReaRoute inputs are not available, check your REAPER installation and verify that ReaRoute ASIO has been checked while installing REAPER.
 
 It should look like this:
 
-<img src="/docs/reapertracks.png" alt="drawing" width="400"/>
+<img src="/docs/pictures/reapertracks.png" alt="drawing" width="400"/>
 
-Now that we configured REAPER ASIO inputs with 4 channels, we will now configure the output to Spat Revolution. For this we will need the Spat Revolution Send VST plugin:
+**REAPER is now ready to recieve audio data via ASIO from Unity.**
+
+Now that we configured REAPER ASIO inputs with 4 channels, we will now configure the output to Spat Revolution. For this we will need the **Spat Revolution Send VST** plugin:
 
 - Open Flux Center and install Spat Revolution Send. This will install a VST plugin on your PC.
 
-- Now on REAPER, go to Options > Preferences, search for VST section.
+- Now on REAPER, go to *Options > Preferences*, search for *VST* section.
 
-- On VST plug-in paths check that the path `%COMMONPROGRAMFILES%/VS3` is configured, click Re-scan... > Clear cache and re-scan VST paths for all plugins, it should add the plugin to REAPER.
+- On VST plug-in paths check that the path `%COMMONPROGRAMFILES%/VS3` is configured, click *Re-scan... > Clear cache and re-scan VST paths for all plugins*, it should add the plugin to REAPER.
 
 - Check if the VST plugin is available. To do this, select a track, click on the FX button (NOT THE IN FX), and search for `VST3: Spat Revolution - Send (FLUX) (64ch)`:
 
-<img src="/docs/reaperfx.png" alt="drawing" width="400"/>
+<img src="/docs/pictures/reaperfx.png" alt="drawing" width="400"/>
 
 - On the Spat Revolution Send VST window, enable Local Audio Path to send audio data to Spat:
 
-<img src="/docs/reaperenable.png" alt="drawing" width="400"/>
+<img src="/docs/pictures/reaperenable.png" alt="drawing" width="400"/>
 
 - Do the 2 last steps on each track created (from "Check if the VST plugin is available").
 
@@ -80,29 +82,29 @@ Now that we configured REAPER ASIO inputs with 4 channels, we will now configure
 
 Open Flux Center and download Spat Revolution, the installation should be done automatically.
 
-- Launch Spat Revolution and go directly to the Preferences tab. 
+- Launch Spat Revolution and go directly to the *Preferences* tab. 
 
-- **For audio data:** Go to IO Hardware, set the output device, and configure the sample rate and the block size so it matches the available properties of the device. The two properties must also match the properties set in REAPER about the Dummy Audio device, to avoid any unwanted audio artifact.
+- **For audio data:** Go to IO Hardware, set the desired output device (must be an ASIO device), and configure the sample rate and the block size so it matches the available properties of the device. The two properties must also match the properties set in REAPER about the Dummy Audio device, to avoid any unwanted audio artifact.
 
-<img src="/docs/spatio.PNG" alt="drawing" width="400"/> <img src="/docs/reaperdummy.png" alt="drawing" width="400"/>
+<img src="/docs/pictures/spatio.PNG" alt="drawing" width="400"/> <img src="/docs/pictures/reaperdummy.png" alt="drawing" width="400"/>
 
 -  **For audio source position:** Go to OSC Main, and be sure that OSC is enabled by ticking the first button. Then, on OSC Connections, add a new connection: `input | Spat Revolution - Plugins`, and set up the IP address to localhost (127.0.0.1), and the port 8100.
 
-<img src="/docs/spatosc.PNG" alt="drawing" width="400"/> <img src="/docs/spatoscip.PNG" alt="drawing" width="400"/>
+<img src="/docs/pictures/spatosc.PNG" alt="drawing" width="400"/> <img src="/docs/pictures/spatoscip.PNG" alt="drawing" width="400"/>
 
-- Once done, go to the Setup tab, and you should already see 4 inputs on the Input line, corresponding to the 4 tracks set on REAPER.
+- Once done, go to the *Setup* tab, and you should already see 4 inputs on the Input line, corresponding to the 4 tracks set on REAPER.
 	>If you don't see them, refer to the [REAPER](#reaper) section to set them up.
 
 - Do the following:
-	- Add 4 sources on the Source line, connect them to the 4 tracks and convert the sources to mono.
-	- Add a room on the Room line and specify the output configuration wanted.
-	- Add a master transcoder on the Master Transcoder line, and set the output to the same config as the room.
-	- Finally, add an output on the Output line.
-- Connect them as follows:
+	- Add 4 source transcoders on the Source Transcoder line, connect them to the 4 tracks, and verify that Output Configuration is set to Mono on each transcoder.
+	- Add 4 sources on the Source line, connect them to the 4 source transcoders (they should have a Mono configuration).
+	- Add a room on the Room line, specify the output configuration wanted, and connect each created source above to this room.
+	- Finally, add an output on the Output line and connect it to the created room above (it should automatically add an intermediary master component on the Master line).
+- This should be set as follows:
 
-<img src="/docs/spatconfig.PNG" alt="drawing" width="800"/>
+<img src="/docs/pictures/spatconfig.PNG" alt="drawing" width="800"/>
 
-You can see on the Room tab the final configuration of the room and sources.
+You can see on the *Room* tab the final configuration of the room and sources.
 
 ### Unity
 
@@ -110,18 +112,26 @@ Once REAPER and Spat Revolution are set, we will open the package on a Unity pro
 
 - Create a project or open an existing project using Unity Hub. A 2022.3 version should work fine.
 
-- After opening the project, go to Edit > Project Settings... On Player > Other Settings section, make sure the API Compatibility Level is set to `.NET Framework`.
-
-<img src="/docs/unitysettings.png" alt="drawing" width="800"/>
-
 - Download and import the Unity Package to the project (see Releases). Once done, open the Example Scene on `Assets/AsioAudioUnity/Example/AsioAudioScene.unity`.
 
-- Identify the ASIO Audio Sources on the Scene, and pick one. On the Inspector tab, select the component `Custom ASIO Audio Source` and tick `Play On Awake`.
+- Identify the ASIO Audio Sources on the Scene, and pick one. On the Inspector tab, select the component `Custom ASIO Audio Source` and verify that `Play On Enable` is set to `true`.
+
+- Identify the OSC Manager object on the Scene, and verify on the `OSC Manager` component that the `Out IP` and `Out Port` properties match the ones set on Spat Revolution (respectively by default 127.0.0.1 and 8100).
 
 - Click Play, and see if audio data is transmitted to REAPER. The REAPER track that should get data is the one identified with the `Target Output Channel` on the `Custom ASIO Audio Source` component, which will point to the corresponding ReaRoute input. 
-	> Example: On Unity, if a `Custom ASIO Audio Source` has its `Play On Awake` property ticked, and its `Target Output Channel` property set to 3, the REAPER track identified by input ReaRoute 3 should get the data.
+	> Example: On Unity, if a `Custom ASIO Audio Source` has its `Play On Enable` property ticked, and its `Target Output Channel` property set to 3, the REAPER track identified by input ReaRoute 3 should get the data when playing the scene.
 
-<img src="/docs/finalresult.png" alt="drawing" width="800"/>
+<img src="/docs/pictures/finalresult.png" alt="drawing" width="800"/>
 
 ## Documentation
-Here's a short documentation about the Asio Audio
+
+The full documentation is available [here](/docs).
+
+#### Audio Components
+
+[AsioAudioManager](/docs/Audio%20Components/AsioAudioManager.md)
+[CustomAsioAudioSource](/docs/Audio%20Components/CustomAsioAudioSource.md)
+
+#### How To
+
+[Setup ASIO Audio Sources From Existing Scene](/docs/SetupFromExistingScene.md)

@@ -280,7 +280,7 @@ namespace AsioAudioUnity
         }
 
         /// <summary>
-        /// Set the SourceWaveProvider from the audio file path specified in the AudioFilePath field, returns true if correctly set.
+        /// Configures the SourceWaveProvider from the specified audio file path, with optional conversion and offset settings.
         /// </summary>
         /// <param name="convertSampleRateAndBitsPerSampleToNewFile">Convert the audio file to the target sample rate specified in the ASIO Audio Manager to a new file.</param>
         /// <param name="setOffsetTime">Set the offset time to the current timestamp.</param>
@@ -335,7 +335,7 @@ namespace AsioAudioUnity
         }
 
         /// <summary>
-        /// Convert audio samples to the target sample rate specified in argument, and store them in a new audio file.
+        /// Converts audio samples to a target sample rate and bit depth, and writes them to a new file.
         /// </summary>
         /// <param name="waveProvider">The audio samples to convert.</param>
         /// <param name="sampleRate">The targeted sample rate.</param>
