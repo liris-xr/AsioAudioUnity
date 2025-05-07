@@ -102,7 +102,7 @@ Open Flux Center and download Spat Revolution, the installation should be done a
 	- Finally, add an output on the Output line and connect it to the created room above (it should automatically add an intermediary master component on the Master line).
 - This should be set as follows:
 
-<img src="/docs/pictures/spatconfig.PNG" alt="drawing" width="800"/>
+<img src="/docs/pictures/spatconfig.png" alt="drawing" width="800"/>
 
 You can see on the *Room* tab the final configuration of the room and sources.
 

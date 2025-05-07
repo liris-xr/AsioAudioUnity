@@ -1,13 +1,13 @@
 ## CustomAsioAudioSource
 
-The CustomAsioAudioSource component is designed to manage audio playback using the NAudio library in conjunction with an ASIO driver. It provides functionality for loading, configuring, and controlling audio files, while integrating with an [AsioAudioManager](#asioaudiomanager) for playback coordination.
+The CustomAsioAudioSource component is designed to manage audio playback using the NAudio library in conjunction with an ASIO driver. It provides functionality for loading, configuring, and controlling audio files, while integrating with an [AsioAudioManager](/docs/Audio%20Components/AsioAudioManager.md) for playback coordination.
 
 ### Typical Workflow and Features
 
 1. Audio File Setup: The audio file is loaded, converted if needed, and configured for playback.
 2. Playback:
 •	The Play, Pause, Stop, and Restart methods control playback.
-•	The [AsioAudioManager](#asioaudiomanager) coordinates playback across multiple sources.
+•	The [AsioAudioManager](/docs/Audio%20Components/AsioAudioManager.md) coordinates playback across multiple sources.
 3. Integration: The component communicates with the AsioAudioManager to ensure proper playback synchronization and configuration.
 
 #### Example

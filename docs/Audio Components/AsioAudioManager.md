@@ -1,6 +1,6 @@
 ## AsioAudioManager
 
-The AsioAudioManager compenent is designed to manage audio playback using the NAudio library and an ASIO driver. It acts as a central controller for multiple [CustomAsioAudioSource](#customasioaudiosource) components, handling ASIO driver initialization, audio source validation, and playback coordination.
+The AsioAudioManager compenent is designed to manage audio playback using the NAudio library and an ASIO driver. It acts as a central controller for multiple [CustomAsioAudioSource](/docs/Audio%20Components/CustomAsioAudioSource.md) components, handling ASIO driver initialization, audio source validation, and playback coordination.
 
 ### Typical Workflow and Features
 
