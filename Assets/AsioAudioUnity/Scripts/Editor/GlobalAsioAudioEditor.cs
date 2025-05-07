@@ -142,8 +142,8 @@ namespace AsioAudioUnity
         [MenuItem("AsioAudioUnity/Convert all Audio Sources in scene to Custom ASIO Audio Sources", false, 21)]
         static void ConvertAllAudioSources()
         {
-            allCustomAsioAudioSources = FindObjectsByType<CustomAsioAudioSource>(FindObjectsSortMode.InstanceID);
-            allBasicAudioSources = FindObjectsByType<AudioSource>(FindObjectsSortMode.InstanceID);
+            allCustomAsioAudioSources = FindObjectsByType<CustomAsioAudioSource>(FindObjectsInactive.Include, FindObjectsSortMode.InstanceID);
+            allBasicAudioSources = FindObjectsByType<AudioSource>(FindObjectsInactive.Include, FindObjectsSortMode.InstanceID);
 
             foreach (AudioSource basicAudioSource in allBasicAudioSources)
             {
@@ -157,7 +157,7 @@ namespace AsioAudioUnity
         [MenuItem("AsioAudioUnity/Add Source Position OSC to all Custom ASIO Audio Sources", false, 22)]
         static void AddAllSourcePositionOsc()
         {
-            allCustomAsioAudioSources = FindObjectsByType<CustomAsioAudioSource>(FindObjectsSortMode.InstanceID);
+            allCustomAsioAudioSources = FindObjectsByType<CustomAsioAudioSource>(FindObjectsInactive.Include, FindObjectsSortMode.InstanceID);
 
             foreach (CustomAsioAudioSource customAsioAudioSource in allCustomAsioAudioSources)
             {
