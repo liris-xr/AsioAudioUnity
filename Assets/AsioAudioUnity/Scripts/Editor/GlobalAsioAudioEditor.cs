@@ -6,8 +6,8 @@ namespace AsioAudioUnity
 {
     public class GlobalAsioAudioEditor : EditorWindow
     {
-        private static AudioSource[] allBasicAudioSources = FindObjectsByType<AudioSource>(FindObjectsSortMode.InstanceID);
-        private static CustomAsioAudioSource[] allCustomAsioAudioSources = FindObjectsByType<CustomAsioAudioSource>(FindObjectsSortMode.InstanceID);
+        private static AudioSource[] allBasicAudioSources = FindObjectsByType<AudioSource>(FindObjectsInactive.Include, FindObjectsSortMode.InstanceID);
+        private static CustomAsioAudioSource[] allCustomAsioAudioSources = FindObjectsByType<CustomAsioAudioSource>(FindObjectsInactive.Include, FindObjectsSortMode.InstanceID);
 
         static void ConvertAudioSource(AudioSource audioSourceToConvert)
         {
@@ -44,7 +44,7 @@ namespace AsioAudioUnity
 
         static void DefineCustomAsioAudioSourceOutputChannel(CustomAsioAudioSource customAsioAudioSource)
         {
-            allCustomAsioAudioSources = FindObjectsByType<CustomAsioAudioSource>(FindObjectsSortMode.InstanceID);
+            allCustomAsioAudioSources = FindObjectsByType<CustomAsioAudioSource>(FindObjectsInactive.Include, FindObjectsSortMode.InstanceID);
 
             int targetOutputChannelIndex = 1;
 
