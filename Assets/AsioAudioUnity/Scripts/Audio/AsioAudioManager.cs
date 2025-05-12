@@ -454,7 +454,7 @@ namespace AsioAudioUnity
 
                 foreach (CustomAsioAudioSource customAsioAudioSource in CustomAsioAudioSources)
                 {
-                    customAsioAudioSource.SourceWaveProvider = null;
+                    customAsioAudioSource.DestroySourceWaveProvider();
                     customAsioAudioSource.SetSourceWaveProviderFromFileName(reinitialiseSamples, true, true);
                 }
 

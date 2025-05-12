@@ -6,11 +6,11 @@ The AsioAudioManager compenent is designed to manage audio playback using the NA
 
 1.	Driver Initialization: The Asio Audio Manager onnects to a specified ASIO driver (AsioDriverName) and manages its lifecycle. If a driver has been found, it will track the number of input channels (AsioDriverInputChannelCount) and ensures compatibility with audio sources.
 2.	Audio Source Coordination:
-•	Audio Source Management: Validates, adds, and removes CustomAsioAudioSource components.
-•	Global Multiplexing: Combines audio sources into a single MultiplexingWaveProvider for playback through the ASIO driver.
+    •	Audio Source Management: Validates, adds, and removes CustomAsioAudioSource components.
+    •	Global Multiplexing: Combines audio sources into a single MultiplexingWaveProvider for playback through the ASIO driver.
 3.	GUI Integration:
-•	Debug GUI: Displays ASIO driver and audio source information in the Unity Game window.
-•	Interactive Controls: Allows runtime configuration of driver name, sample rate, and bit depth.
+    •	Debug GUI: Displays ASIO driver and audio source information in the Unity Game window.
+    •	Interactive Controls: Allows runtime configuration of driver name, sample rate, and bit depth.
 
 #### Public Properties
 | **Property** | **Description** |

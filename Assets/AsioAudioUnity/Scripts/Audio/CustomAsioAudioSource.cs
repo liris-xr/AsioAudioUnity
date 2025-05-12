@@ -154,7 +154,7 @@ namespace AsioAudioUnity
         public IWaveProvider SourceWaveProvider
         {
             get { return _sourceWaveProvider; }
-            set { _sourceWaveProvider = value; }
+            private set { _sourceWaveProvider = value; }
         }
 
         [SerializeField][ReadOnly] private AsioAudioStatus _audioStatus = AsioAudioStatus.Stopped;
@@ -550,6 +550,14 @@ namespace AsioAudioUnity
 
             else throw new Exception("The bits per sample value is not supported. Please use 16 or 32.");
             
+        }
+
+        /// <summary>
+        /// Destroy the SourceWaveProvider from the ASIO Audio Source.
+        //// </summary>
+        public void DestroySourceWaveProvider()
+        {
+            if (SourceWaveProvider != null) SourceWaveProvider = null;
         }
 
         /// <summary>

@@ -1,4 +1,4 @@
-## Setup ASIO Audio Sources From Existing Scene
+## Setup ASIO Audio Sources From Scene With Audio Sources
 
 If you have an existing scene and you want to convert all the Audio Sources to Custom ASIO Audio Sources, do the following steps:
 - Open your scene.
