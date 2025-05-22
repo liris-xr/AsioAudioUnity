@@ -4,9 +4,9 @@ The AsioAudioManager compenent is designed to manage audio playback using the NA
 
 ### Typical Workflow and Features
 
-1.	Driver Initialization: The Asio Audio Manager onnects to a specified ASIO driver (AsioDriverName) and manages its lifecycle. If a driver has been found, it will track the number of input channels (AsioDriverInputChannelCount) and ensures compatibility with audio sources.
+1.	Driver Initialization: The Asio Audio Manager connects to a specified ASIO driver (AsioDriverName) and manages its lifecycle. If a driver has been found, it will track the number of input channels (AsioDriverInputChannelCount) and ensures compatibility with audio sources.
 2.	Audio Source Coordination:
-    •	Audio Source Management: Validates, adds, and removes CustomAsioAudioSource components.
+    •	Audio Source Management: Validates, adds, and removes [CustomAsioAudioSource](/docs/Audio%20Components/CustomAsioAudioSource.md) components.
     •	Global Multiplexing: Combines audio sources into a single MultiplexingWaveProvider for playback through the ASIO driver.
 3.	GUI Integration:
     •	Debug GUI: Displays ASIO driver and audio source information in the Unity Game window.
@@ -19,7 +19,7 @@ The AsioAudioManager compenent is designed to manage audio playback using the NA
 | `TargetSampleRate` | The target sample rate for audio playback (default: 48000 Hz). |
 | `TargetBitsPerSample` | The target bit depth for audio playback (16 or 32 bits). |
 | `AsioDriverInputChannelCount` | The number of input channels supported by the ASIO driver (Read Only). |
-| `CustomAsioAudioSources` | A list of all `CustomAsioAudioSource` components managed by this manager (Read Only). |
+| `CustomAsioAudioSources` | A list of all [CustomAsioAudioSource](/docs/Audio%20Components/CustomAsioAudioSource.md) components managed by this manager (Read Only). |
 | `DisplayInfoOnGameWindow` | Whether to display ASIO driver and audio source information in the Unity Game window. |
 
 #### Public Methods
@@ -27,8 +27,8 @@ The AsioAudioManager compenent is designed to manage audio playback using the NA
 | **Method** | **Description** |
 |-|-|
 | `ConnectMixAndPlay` | Connects to the ASIO driver, sets up the global multiplexing provider, and starts playback for all audio sources. Optionally reinitializes audio samples from file paths. |
-| `RequestAddAsioAudioSource` | Validates and adds a `CustomAsioAudioSource` to the manager. Returns `true` if the source is successfully added, `false` otherwise. |
-| `RequestRemoveAsioAudioSource` | Removes a `CustomAsioAudioSource` from the manager. Returns `true` if the source is successfully removed, `false` otherwise. |
+| `RequestAddAsioAudioSource` | Validates and adds a [CustomAsioAudioSource](/docs/Audio%20Components/CustomAsioAudioSource.md) to the manager. Returns `true` if the source is successfully added, `false` otherwise. |
+| `RequestRemoveAsioAudioSource` | Removes a [CustomAsioAudioSource](/docs/Audio%20Components/CustomAsioAudioSource.md) from the manager. Returns `true` if the source is successfully removed, `false` otherwise. |
 
 #### Unity Events
 

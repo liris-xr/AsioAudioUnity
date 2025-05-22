@@ -114,12 +114,12 @@ Once REAPER and Spat Revolution are set, we will open the package on a Unity pro
 
 - Download and import the Unity Package to the project (see Releases). Once done, open the Example Scene on `Assets/AsioAudioUnity/Example/AsioAudioScene.unity`.
 
-- Identify the ASIO Audio Sources on the Scene, and pick one. On the Inspector tab, select the component `Custom ASIO Audio Source` and verify that `Play On Enable` is set to `true`.
+- Identify the ASIO Audio Sources on the Scene, and pick one. On the Inspector tab, select the component [CustomAsioAudioSource](/docs/Audio%20Components/CustomAsioAudioSource.md) and verify that `PlayOnEnable` is set to `true`.
 
-- Identify the OSC Manager object on the Scene, and verify on the `OSC Manager` component that the `Out IP` and `Out Port` properties match the ones set on Spat Revolution (respectively by default 127.0.0.1 and 8100).
+- Identify the OSC Manager object on the Scene, and verify on the `OSC` component that the `OutIP` and `OutPort` properties match the ones set on Spat Revolution (respectively by default 127.0.0.1 and 8100).
 
-- Click Play, and see if audio data is transmitted to REAPER. The REAPER track that should get data is the one identified with the `Target Output Channel` on the `Custom ASIO Audio Source` component, which will point to the corresponding ReaRoute input. 
-	> Example: On Unity, if a `Custom ASIO Audio Source` has its `Play On Enable` property ticked, and its `Target Output Channel` property set to 3, the REAPER track identified by input ReaRoute 3 should get the data when playing the scene.
+- Click Play, and see if audio data is transmitted to REAPER. The REAPER track that should get data is the one identified with the `TargetOutputChannel` on the [CustomAsioAudioSource](/docs/Audio%20Components/CustomAsioAudioSource.md) component, which will point to the corresponding ReaRoute input. 
+	> Example: On Unity, if a [CustomAsioAudioSource](/docs/Audio%20Components/CustomAsioAudioSource.md) has its `PlayOnEnable` property ticked, and its `TargetOutputChannel` property set to 3, the REAPER track identified by input ReaRoute 3 should get the data when playing the scene.
 
 <img src="/docs/pictures/finalresult.png" alt="drawing" width="800"/>
 
@@ -133,6 +133,18 @@ The full documentation is available [here](/docs).
 
 [CustomAsioAudioSource](/docs/Audio%20Components/CustomAsioAudioSource.md)
 
+#### OSC Components
+
+[RoomPositionOsc](/docs/OSC%20Components/RoomPositionOsc.md)
+
+[SourcePositionOsc](/docs/OSC%20Components/SourcePositionOsc.md)
+
 #### How To
 
-[Setup ASIO Audio Sources From Existing Scene](/docs/SetupFromExistingScene.md)
+[Setup ASIO Audio Environment](/docs/SetupAsioAudioEnvironment.md)
+
+[Setup ASIO Audio Sources In Scene](/docs/SetupAsioAudioSourcesInScene.md)
+
+[Setup ASIO Audio Sources From Scene With Audio Sources](/docs/SetupFromSceneWithAudioSources.md)
+
+[Setup OSC Environment](/docs/SetupOscEnvironment.md)

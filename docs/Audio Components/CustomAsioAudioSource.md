@@ -9,11 +9,26 @@ The CustomAsioAudioSource component is designed to manage audio playback using t
 
     > **Example:** If the original path of the file was `Folder/OriginalSound.wav` encoded in 44100 Hz - 32 bit, and a conversion is needed to 48000 Hz - 32 bit, the audio samples will be converted to desired sample rate, a new audio file will be created, and the new `AudioFilePath` will be `Folder/OriginalSound_48000_32.wav`
 2. Playback:
-    •	The Play, Pause, Stop, and Restart methods control playback, by sending signal to [AsioAudioManager](/docs/Audio%20Components/AsioAudioManager.md).
-    •	The [AsioAudioManager](/docs/Audio%20Components/AsioAudioManager.md) coordinates playback across multiple sources.
+    - The Play, Pause, Stop, and Restart methods control playback, by sending signal to [AsioAudioManager](/docs/Audio%20Components/AsioAudioManager.md).
+    - The [AsioAudioManager](/docs/Audio%20Components/AsioAudioManager.md) coordinates playback across multiple sources.
 3. Integration: The component communicates with the [AsioAudioManager](/docs/Audio%20Components/AsioAudioManager.md) to ensure proper playback synchronization and configuration.
 
-#### Example
+#### Properties Setup
+
+For each CustomAsioAudioSource component, you can attach an audio file. For this, simply drag and drop an audio file from your project's *Assets* folder to the box (highlighted below) on the Inspector tab:
+
+<img src="/docs/pictures/asioaudiosourceaudiobox.png" alt="drawing" width="800"/>
+
+By dropping the audio file, you should see that the `AudioFilePath` property has been filled in with the path to the file.
+> **Warning:** The accepted audio file formats are: .mp3, .wav, .ogg, .aiff, .flac, but **only .wav has been tested for now**. So please note it is quite likely that the other formats may not work at this moment!
+
+Next, fill in the `TargetOutputChannel` so it is valid (from 1 to the available number of channels on the ASIO driver) and unique among the other CustomAsioAudioSource components.
+
+It is not mandatory to set the `ReferencedAsioAudioManager` as it will be automatically set if empty after starting the application (provided that there is one on scene).
+
+Set the other properties (`Volume`, `PlayOnEnable`, `Loop`) so it matches what you want.
+
+#### Script Example
 
 ```cs
 using UnityEngine;
