@@ -10,6 +10,9 @@ using NAudio.Wave.SampleProviders;
 
 namespace AsioAudioUnity
 {
+    /// <summary>
+    /// A representation of an Audio Source that can be used to play audio files using ASIO protocol.
+    /// </summary>
     [System.Serializable]
     public class CustomAsioAudioSource : MonoBehaviour
     {
@@ -554,7 +557,7 @@ namespace AsioAudioUnity
 
         /// <summary>
         /// Destroy the SourceWaveProvider from the ASIO Audio Source.
-        //// </summary>
+        /// </summary>
         public void DestroySourceWaveProvider()
         {
             if (SourceWaveProvider != null) SourceWaveProvider = null;

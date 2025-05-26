@@ -9,6 +9,9 @@ using NAudio.Wave.SampleProviders;
 
 namespace AsioAudioUnity
 {
+    /// <summary>
+    /// The main class to manage ASIO audio playback in Unity. It allows you to set the ASIO driver name, target sample rate, and bits per sample.
+    /// </summary>
     public class AsioAudioManager : MonoBehaviour
     {
         private UnityEvent _onAsioDriverNameChanged;

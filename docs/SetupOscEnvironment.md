@@ -2,7 +2,16 @@
 
 ### Introduction to OSC
 
-(To implement)
+OSC stands for Open Sound Control and is a protocol designed for show control and has the benefit to be flexible and accurate. This standard communicates to show devices through UDP/IP protocol by sending commands that look like this:
+`"/menu/submenu/command", (bool float or string)`
+
+Each environment uses its own controls, but the format is always the same.
+For example, Spat Revolution has controls for sources and room to set properties such as position. The commands will look like this:
+`"/source/(k)/xyz", [x,y,z]`
+`"/room/(k)/xyz", [x,y,z]`
+Where k is the index of the source or room and x,y,z to coordinates to set. 
+
+For more information on OSC components, see [RoomPositionOsc](/docs/OSC%20Components/RoomPositionOsc.md) and [SourcePositionOsc](/docs/OSC%20Components/SourcePositionOsc.md).
 
 ### Creating the OSC Manager
 
