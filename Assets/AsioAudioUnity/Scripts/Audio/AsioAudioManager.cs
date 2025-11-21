@@ -5,7 +5,6 @@ using System.Linq;
 using UnityEngine;
 using UnityEngine.Events;
 using NAudio.Wave;
-using NAudio.Wave.SampleProviders;
 
 namespace AsioAudioUnity
 {

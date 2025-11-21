@@ -4,5 +4,8 @@
 EditorBuildSettings:
   m_ObjectHideFlags: 0
   serializedVersion: 2
-  m_Scenes: []
+  m_Scenes:
+  - enabled: 1
+    path: Assets/AsioAudioUnity/Example/AsioAudioScene.unity
+    guid: 7b889291cd5861240b40ae3f98db1f04
   m_configObjects: {}
