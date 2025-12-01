@@ -405,7 +405,7 @@ namespace AsioAudioUnity
                 {
                     if (customAsioAudioSourceFound.SourceWaveProvider == null)
                     {
-                        throw new NullReferenceException("Cannot create the Global Sample Provider because the Sample Provider of the ASIO Audio Source attached to GameObject \"" + customAsioAudioSourceFound.gameObject.name + "\" is not yet set. The process will be aborted.");
+                        throw new NullReferenceException("Cannot create the Global Multiplexing Wave Provider because the Wave Provider of the ASIO Audio Source attached to GameObject \"" + customAsioAudioSourceFound.gameObject.name + "\" is not yet set. The process will be aborted.");
                     }
                     else
                     {

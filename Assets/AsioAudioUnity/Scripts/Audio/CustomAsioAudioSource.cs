@@ -326,11 +326,11 @@ namespace AsioAudioUnity
 
             if (convertToMono)
             {
-                if (ReferencedAsioAudioManager) SourceWaveProvider = ConvertSamplesToMono(SourceWaveProvider, (int)ReferencedAsioAudioManager.TargetBitsPerSample);
+                if (ReferencedAsioAudioManager) SourceWaveProvider = ConvertWaveProviderToMono(SourceWaveProvider, (int)ReferencedAsioAudioManager.TargetBitsPerSample);
                 else UnityEngine.Debug.LogWarning("The argument convertToMono is set to true, but the ASIO Audio Manager (where the TargetBitsPerSample property is defined) is not referenced. The audio samples will not be converted to mono.");
             }
 
-            SourceWaveProvider = SetSamplesVolume(SourceWaveProvider, Volume);
+            SourceWaveProvider = SetWaveProviderVolume(SourceWaveProvider, Volume);
 
             GetWaveFormatProperties(SourceWaveProvider);
 
@@ -488,7 +488,7 @@ namespace AsioAudioUnity
             }
         }
 
-        private IWaveProvider ConvertSamplesToMono(IWaveProvider waveProvider, int bitsPerSample)
+        private IWaveProvider ConvertWaveProviderToMono(IWaveProvider waveProvider, int bitsPerSample)
         {
             if (waveProvider == null)
             {
@@ -527,7 +527,7 @@ namespace AsioAudioUnity
             ExtraSize = waveProvider.WaveFormat.ExtraSize;
         }
 
-        private IWaveProvider SetSamplesVolume(IWaveProvider waveProvider, float volume)
+        private IWaveProvider SetWaveProviderVolume(IWaveProvider waveProvider, float volume)
         {
             if (volume < 0f || volume > 1f)
             {
@@ -664,5 +664,7 @@ namespace AsioAudioUnity
         }
     }
 }
+
+
 
 
