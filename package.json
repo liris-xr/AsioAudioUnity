@@ -1,0 +1,26 @@
+{
+  "name": "fr.liris.asioaudiounity",
+  "version": "1.0.0",
+  "displayName": "Asio Audio Unity",
+  "description": "A simple package that redefines Unity Audio Sources to work with ASIO protocol, and adds transmission of Audio Source positions via OSC protocol.",
+  "samples": [
+  {
+	  "displayName": "Demo Scene",
+	  "description": "Contains an example scene with sample sounds to demonstrate the Asio Audio Unity package functionality.",
+	  "path": "Samples~/Demo"
+	  }
+  ],
+  "documentationUrl": "",
+  "changelogUrl": "",
+  "licensesUrl": "",
+  "keywords": [
+    "Audio",
+    "ASIO",
+    "OSC",
+    "3D Audio"
+  ],
+  "author": {
+    "name": "Eliott Zimmermann",
+    "email": "eliott.zimmermann@liris.cnrs.fr"
+  }
+}
