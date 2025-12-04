@@ -19,7 +19,7 @@ For more information on OSC components, see [RoomPositionOsc](/Documentation~/OS
 
 To add an `OSC` component on scene, you can go multiple ways:
 
-1. Use prefab: A prefab named `OSC Manager` is present on the `Assets` folder, at `Assets/AsioAudioUnity/Prefabs/OSC Manager.prefab`, you can simply drag and drop this prefab on scene.
+1. Use prefab: A prefab named `OSC Manager` is present on the `Packages` folder, at `Packages/Asio Audio Unity/Runtime/Prefabs/OSC Manager.prefab`, you can simply drag and drop this prefab on scene.
 2. Setup GameObject: You can add a GameObject with an `OSC` component on scene by going to *GameObject > AsioAudioUnity > OSC Manager*.
 
 Once the `OSC` component is put in scene, you can set the `InPort`, `OutIP` and `OutPort` properties.

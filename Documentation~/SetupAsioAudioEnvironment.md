@@ -1,6 +1,6 @@
 ## Setup ASIO Audio Environment
 
-If you begin in using the AsioAudioUnity plugin, you can start here by following this part of the documentation.
+If you begin in using the Asio Audio Unity plugin, you can start here by following this part of the documentation.
 
 ### Intended ASIO audio workflow
 
@@ -67,7 +67,7 @@ graph LR
 
 To add an [AsioAudioManager](/Documentation~/Audio%20Components/AsioAudioManager.md) component on scene, you can go multiple ways:
 
-1. Use prefab: A prefab named `ASIO Audio Manager` is present on the `Assets` folder, at `Assets/AsioAudioUnity/Prefabs/ASIO Audio Manager.prefab`, you can simply drag and drop this prefab on scene.
+1. Use prefab: A prefab named `ASIO Audio Manager` is present on the `Packages` folder, at `Packages/Asio Audio Unity/Runtime/Prefabs/ASIO Audio Manager.prefab`, you can simply drag and drop this prefab on scene.
 2. Setup GameObject: You can add a GameObject with an [AsioAudioManager](/Documentation~/Audio%20Components/AsioAudioManager.md) component on scene by going to *GameObject > AsioAudioUnity > ASIO Audio Manager*.
 
 Once the [AsioAudioManager](/Documentation~/Audio%20Components/AsioAudioManager.md) is put in scene, you can set the `AsioDriverName` field with the ASIO driver name you want to connect to. If the name is correctly set, you shouldn't have any errors on the console. Moreover you can see connection status by setting the `DisplayInfoOnGameWindow` property to `true` (or ticking the corresponding box in the Inspector).
