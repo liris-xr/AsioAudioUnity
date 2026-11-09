@@ -1,0 +1,292 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using NAudio.Wave;
+using UnityEditor;
+using UnityEngine;
+using Object = UnityEngine.Object;
+
+namespace AsioAudioUnity
+{
+    /// <summary>
+    /// Shared helpers for the ASIO Audio Unity inspectors and the ASIO Mixer window.
+    /// </summary>
+    internal static class AsioEditorUtility
+    {
+        public static readonly int[] CommonSampleRates = { 44100, 48000, 88200, 96000, 176400, 192000 };
+        public static readonly string[] AudioExtensions = { ".wav", ".mp3", ".ogg", ".aiff", ".aif", ".flac" };
+
+        public static readonly Color PlayingColor = new Color(0.35f, 0.80f, 0.45f);
+        public static readonly Color PausedColor = new Color(0.95f, 0.75f, 0.25f);
+        public static readonly Color StoppedColor = new Color(0.55f, 0.55f, 0.55f);
+        public static readonly Color ErrorColor = new Color(0.95f, 0.35f, 0.35f);
+
+        // ---------- Scene objects ----------
+
+        public static AsioAudioManager FindManager()
+        {
+            return Object.FindFirstObjectByType<AsioAudioManager>(FindObjectsInactive.Include);
+        }
+
+        /// <summary>All Custom ASIO Audio Sources in the open scenes (including inactive ones), sorted by output channel.</summary>
+        public static CustomAsioAudioSource[] FindAllSources()
+        {
+            return Object.FindObjectsByType<CustomAsioAudioSource>(FindObjectsInactive.Include, FindObjectsSortMode.None)
+                .OrderBy(source => source.TargetOutputChannel <= 0 ? int.MaxValue : source.TargetOutputChannel)
+                .ThenBy(source => source.name)
+                .ToArray();
+        }
+
+        /// <summary>
+        /// Records an Undo step (and prefab override) for a change made through a component's C# properties.
+        /// </summary>
+        public static void RecordChange(Object target, string undoName, Action change)
+        {
+            Undo.RecordObject(target, undoName);
+            change();
+            PrefabUtility.RecordPrefabInstancePropertyModifications(target);
+        }
+
+        // ---------- ASIO driver ----------
+
+        private static string[] _driverNames;
+
+        /// <summary>Names of the ASIO drivers installed on this machine (cached until refreshed).</summary>
+        public static string[] GetDriverNames(bool refresh = false)
+        {
+            if (_driverNames == null || refresh)
+            {
+                try { _driverNames = AsioOut.GetDriverNames(); }
+                catch (Exception) { _driverNames = new string[0]; }
+            }
+            return _driverNames;
+        }
+
+        /// <summary>
+        /// Output channel count of the manager's driver: the live value when connected, otherwise the last value seen for this driver (0 if never seen).
+        /// </summary>
+        public static int GetKnownOutputChannelCount(AsioAudioManager manager)
+        {
+            if (manager == null || string.IsNullOrEmpty(manager.AsioDriverName)) return 0;
+
+            string key = "AsioAudioUnity.OutputChannelCount." + manager.AsioDriverName;
+            if (manager.IsConnected)
+            {
+                if (EditorPrefs.GetInt(key, 0) != manager.AsioDriverOutputChannelCount) EditorPrefs.SetInt(key, manager.AsioDriverOutputChannelCount);
+                return manager.AsioDriverOutputChannelCount;
+            }
+            return EditorPrefs.GetInt(key, 0);
+        }
+
+        // ---------- Output channels ----------
+
+        public enum ChannelIssue { None, NotSet, OutOfRange, Duplicate }
+
+        public static ChannelIssue GetChannelIssue(CustomAsioAudioSource source, IList<CustomAsioAudioSource> allSources, int outputChannelCount)
+        {
+            int channel = source.TargetOutputChannel;
+            if (channel <= 0) return ChannelIssue.NotSet;
+            if (outputChannelCount > 0 && channel > outputChannelCount) return ChannelIssue.OutOfRange;
+            if (allSources.Any(other => other != source && other.TargetOutputChannel == channel)) return ChannelIssue.Duplicate;
+            return ChannelIssue.None;
+        }
+
+        public static string DescribeChannelIssue(ChannelIssue issue, CustomAsioAudioSource source, IList<CustomAsioAudioSource> allSources, int outputChannelCount)
+        {
+            switch (issue)
+            {
+                case ChannelIssue.NotSet:
+                    return "No output channel is set: this source will be ignored.";
+                case ChannelIssue.OutOfRange:
+                    return "Channel " + source.TargetOutputChannel + " doesn't exist: the ASIO driver has " + outputChannelCount + " output channels.";
+                case ChannelIssue.Duplicate:
+                    string others = string.Join(", ", allSources.Where(other => other != source && other.TargetOutputChannel == source.TargetOutputChannel).Select(other => "\"" + other.name + "\""));
+                    return "Channel " + source.TargetOutputChannel + " is also used by " + others + ". Each source needs its own channel: only one of them will play.";
+                default:
+                    return null;
+            }
+        }
+
+        /// <summary>
+        /// Builds the options of an output channel popup: "None", then each channel, labelled with the source already using it (other than the edited ones).
+        /// </summary>
+        public static void BuildChannelOptions(int currentChannel, int outputChannelCount, IList<CustomAsioAudioSource> allSources, ICollection<CustomAsioAudioSource> editedSources, out GUIContent[] labels, out int[] values)
+        {
+            int highestUsedChannel = allSources.Count == 0 ? 0 : allSources.Max(source => source.TargetOutputChannel);
+            int channelCount = outputChannelCount > 0 ? outputChannelCount : Mathf.Max(16, highestUsedChannel + 1);
+
+            List<GUIContent> labelList = new List<GUIContent> { new GUIContent("None") };
+            List<int> valueList = new List<int> { 0 };
+
+            for (int channel = 1; channel <= Mathf.Max(channelCount, currentChannel); channel++)
+            {
+                string label = channel.ToString();
+                if (channel > channelCount) label += "  (doesn't exist on driver)";
+
+                CustomAsioAudioSource user = allSources.FirstOrDefault(source => source.TargetOutputChannel == channel && !editedSources.Contains(source));
+                if (user != null) label += "  (used by " + user.name.Replace("/", "∕") + ")"; // A '/' would create a submenu
+
+                labelList.Add(new GUIContent(label));
+                valueList.Add(channel);
+            }
+
+            labels = labelList.ToArray();
+            values = valueList.ToArray();
+        }
+
+        /// <summary>Gives each source the lowest output channel not used by any other source.</summary>
+        public static void AutoAssignChannels(IList<CustomAsioAudioSource> sourcesToAssign, IList<CustomAsioAudioSource> allSources)
+        {
+            HashSet<int> usedChannels = new HashSet<int>(allSources.Where(source => !sourcesToAssign.Contains(source)).Select(source => source.TargetOutputChannel));
+            int nextChannel = 1;
+
+            foreach (CustomAsioAudioSource source in sourcesToAssign)
+            {
+                while (usedChannels.Contains(nextChannel)) nextChannel++;
+                int channel = nextChannel;
+                RecordChange(source, "Auto-assign Output Channels", () => source.TargetOutputChannel = channel);
+                usedChannels.Add(channel);
+            }
+        }
+
+        // ---------- Audio files ----------
+
+        public class AudioFileInfo
+        {
+            public double LengthSeconds;
+            public int SampleRate;
+            public int Channels;
+            public int BitsPerSample; // 0 when unknown (compressed formats)
+        }
+
+        private static readonly Dictionary<string, (DateTime lastWrite, AudioFileInfo info)> _fileInfoCache = new Dictionary<string, (DateTime, AudioFileInfo)>();
+
+        /// <summary>Reads (and caches) the length and format of an audio file. Returns null if the file is missing or unreadable.</summary>
+        public static AudioFileInfo GetAudioFileInfo(string resolvedPath)
+        {
+            if (string.IsNullOrEmpty(resolvedPath) || !File.Exists(resolvedPath)) return null;
+
+            DateTime lastWrite = File.GetLastWriteTimeUtc(resolvedPath);
+            if (_fileInfoCache.TryGetValue(resolvedPath, out var cached) && cached.lastWrite == lastWrite) return cached.info;
+
+            AudioFileInfo info = null;
+            try
+            {
+                using (AudioFileReader reader = new AudioFileReader(resolvedPath))
+                {
+                    info = new AudioFileInfo
+                    {
+                        LengthSeconds = reader.TotalTime.TotalSeconds,
+                        SampleRate = reader.WaveFormat.SampleRate,
+                        Channels = reader.WaveFormat.Channels,
+                    };
+                }
+                if (string.Equals(Path.GetExtension(resolvedPath), ".wav", StringComparison.OrdinalIgnoreCase))
+                {
+                    using (WaveFileReader waveReader = new WaveFileReader(resolvedPath)) info.BitsPerSample = waveReader.WaveFormat.BitsPerSample;
+                }
+            }
+            catch (Exception) { }
+
+            _fileInfoCache[resolvedPath] = (lastWrite, info);
+            return info;
+        }
+
+        public static string DescribeAudioFile(AudioFileInfo info)
+        {
+            if (info == null) return null;
+            string channels = info.Channels == 1 ? "Mono" : info.Channels == 2 ? "Stereo" : info.Channels + " channels";
+            string bits = info.BitsPerSample > 0 ? "  ·  " + info.BitsPerSample + "-bit" : "";
+            return FormatTime(info.LengthSeconds) + "  ·  " + (info.SampleRate / 1000f).ToString("0.#") + " kHz" + bits + "  ·  " + channels;
+        }
+
+        public static bool IsAudioFile(string path)
+        {
+            return AudioExtensions.Contains(Path.GetExtension(path).ToLowerInvariant());
+        }
+
+        public static string ProjectRootPath => Path.GetFullPath(Path.GetDirectoryName(Application.dataPath));
+
+        /// <summary>Converts a path inside the project folder to a project-relative path ("Assets/..."); other paths are returned as absolute paths.</summary>
+        public static string ToProjectRelativePath(string path)
+        {
+            string fullPath = Path.GetFullPath(path);
+            string projectRoot = ProjectRootPath + Path.DirectorySeparatorChar;
+            if (fullPath.StartsWith(projectRoot, StringComparison.OrdinalIgnoreCase)) return fullPath.Substring(projectRoot.Length).Replace('\\', '/');
+            return fullPath;
+        }
+
+        public static bool IsOutsideProject(string audioFilePath)
+        {
+            return !string.IsNullOrEmpty(audioFilePath) && Path.IsPathRooted(audioFilePath);
+        }
+
+        // ---------- Drawing ----------
+
+        public static string FormatTime(double seconds)
+        {
+            if (double.IsNaN(seconds) || seconds < 0) seconds = 0;
+            TimeSpan time = TimeSpan.FromSeconds(seconds);
+            return time.TotalHours >= 1 ? time.ToString(@"h\:mm\:ss") : time.ToString(@"m\:ss");
+        }
+
+        public static Color GetStatusColor(AsioAudioStatus status)
+        {
+            switch (status)
+            {
+                case AsioAudioStatus.Playing: return PlayingColor;
+                case AsioAudioStatus.Paused: return PausedColor;
+                default: return StoppedColor;
+            }
+        }
+
+        public static void DrawDot(Rect rect, Color color)
+        {
+            float size = Mathf.Min(rect.width, rect.height, 9f);
+            Rect dotRect = new Rect(rect.x + (rect.width - size) / 2f, rect.y + (rect.height - size) / 2f, size, size);
+            EditorGUI.DrawRect(dotRect, color);
+        }
+
+        /// <summary>Draws a peak level meter (from -60 dB to 0 dB).</summary>
+        public static void DrawMeter(Rect rect, float linearLevel, bool vertical)
+        {
+            EditorGUI.DrawRect(rect, EditorGUIUtility.isProSkin ? new Color(0.12f, 0.12f, 0.12f) : new Color(0.55f, 0.55f, 0.55f));
+
+            float decibels = linearLevel > 0.000001f ? 20f * Mathf.Log10(linearLevel) : -120f;
+            float fill = Mathf.Clamp01(Mathf.InverseLerp(-60f, 0f, decibels));
+            if (fill <= 0f) return;
+
+            Color color = decibels > -3f ? ErrorColor : decibels > -12f ? PausedColor : PlayingColor;
+            Rect fillRect = vertical
+                ? new Rect(rect.x, rect.yMax - rect.height * fill, rect.width, rect.height * fill)
+                : new Rect(rect.x, rect.y, rect.width * fill, rect.height);
+            EditorGUI.DrawRect(fillRect, color);
+        }
+
+        /// <summary>
+        /// Draws a playback progress bar with the time. When interactive, clicking or dragging on it returns the position to seek to (in seconds), otherwise -1.
+        /// </summary>
+        public static double DrawProgressBar(Rect rect, double currentSeconds, double lengthSeconds, Color fillColor, bool interactive)
+        {
+            EditorGUI.DrawRect(rect, EditorGUIUtility.isProSkin ? new Color(0.15f, 0.15f, 0.15f) : new Color(0.65f, 0.65f, 0.65f));
+
+            float progress = lengthSeconds > 0 ? Mathf.Clamp01((float)(currentSeconds / lengthSeconds)) : 0f;
+            EditorGUI.DrawRect(new Rect(rect.x, rect.y, rect.width * progress, rect.height), fillColor * new Color(1f, 1f, 1f, 0.75f));
+
+            GUIStyle labelStyle = new GUIStyle(EditorStyles.miniLabel) { alignment = TextAnchor.MiddleCenter };
+            GUI.Label(rect, FormatTime(currentSeconds) + " / " + FormatTime(lengthSeconds), labelStyle);
+
+            if (!interactive || lengthSeconds <= 0) return -1;
+
+            EditorGUIUtility.AddCursorRect(rect, MouseCursor.SlideArrow);
+            Event currentEvent = Event.current;
+            if ((currentEvent.type == EventType.MouseDown || currentEvent.type == EventType.MouseDrag) && currentEvent.button == 0 && rect.Contains(currentEvent.mousePosition))
+            {
+                currentEvent.Use();
+                return Mathf.Clamp01((currentEvent.mousePosition.x - rect.x) / rect.width) * lengthSeconds;
+            }
+            return -1;
+        }
+    }
+}

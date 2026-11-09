@@ -10,7 +10,10 @@ namespace AsioAudioUnity
 {
     /// <summary>
     /// The main class to manage ASIO audio playback in Unity. It allows you to set the ASIO driver name, target sample rate, and bits per sample.
+    /// The ASIO driver stays connected while this component is enabled, and continuously plays the mix of all registered Custom ASIO Audio Sources
+    /// (each one on its own output channel). Playing, pausing or stopping a source doesn't interrupt the driver.
     /// </summary>
+    [DefaultExecutionOrder(-100)] // Connect before the Custom ASIO Audio Sources are enabled
     public class AsioAudioManager : MonoBehaviour
     {
         private UnityEvent _onAsioDriverNameChanged;
@@ -21,13 +24,17 @@ namespace AsioAudioUnity
         }
 
         [SerializeField] private string _asioDriverName;
+        /// <summary>
+        /// The name of the ASIO driver to play on. Changing it at runtime reconnects to the new driver.
+        /// </summary>
         public string AsioDriverName
         {
             get { return _asioDriverName; }
-            private set 
-            { 
+            set
+            {
                 if (_asioDriverName == value) return;
                 _asioDriverName = value;
+                ApplyConfigurationChange();
                 if (OnAsioDriverNameChanged != null)
                     OnAsioDriverNameChanged.Invoke();
             }
@@ -41,13 +48,17 @@ namespace AsioAudioUnity
         }
 
         [SerializeField] private int _targetSampleRate = 48000;
+        /// <summary>
+        /// The sample rate the ASIO driver runs at. Audio files are resampled to it on the fly. Changing it at runtime reconnects the driver.
+        /// </summary>
         public int TargetSampleRate
         {
             get { return _targetSampleRate; }
-            private set 
+            set
             {
                 if (_targetSampleRate == value) return;
                 _targetSampleRate = value;
+                ApplyConfigurationChange();
                 if (OnTargetSampleRateChanged != null)
                     OnTargetSampleRateChanged.Invoke();
             }
@@ -61,13 +72,17 @@ namespace AsioAudioUnity
         }
 
         [SerializeField] private BitsPerSample _targetBitsPerSample = BitsPerSample.Bits32;
+        /// <summary>
+        /// The sample format sent to the ASIO driver (16-bit integer or 32-bit float). Changing it at runtime reconnects the driver.
+        /// </summary>
         public BitsPerSample TargetBitsPerSample
         {
             get { return _targetBitsPerSample; }
-            private set 
+            set
             {
                 if (_targetBitsPerSample == value) return;
                 _targetBitsPerSample = value;
+                ApplyConfigurationChange();
                 if (OnTargetBitsPerSampleChanged != null)
                     OnTargetBitsPerSampleChanged.Invoke();
             }
@@ -80,7 +95,17 @@ namespace AsioAudioUnity
             private set { _asioDriverInputChannelCount = value; }
         }
 
-        [SerializeField][ReadOnly] private List<CustomAsioAudioSource> _customAsioAudioSources;
+        [SerializeField][ReadOnly] private int _asioDriverOutputChannelCount;
+        /// <summary>
+        /// Number of output channels exposed by the ASIO driver. Each Custom ASIO Audio Source targets one of these.
+        /// </summary>
+        public int AsioDriverOutputChannelCount
+        {
+            get { return _asioDriverOutputChannelCount; }
+            private set { _asioDriverOutputChannelCount = value; }
+        }
+
+        [SerializeField][ReadOnly] private List<CustomAsioAudioSource> _customAsioAudioSources = new List<CustomAsioAudioSource>();
         public List<CustomAsioAudioSource> CustomAsioAudioSources
         {
             get { return _customAsioAudioSources; }
@@ -94,21 +119,6 @@ namespace AsioAudioUnity
             set { _displayInfoOnGameWindow = value; }
         }
 
-        private bool _displayModeClear = false;
-        private string _connectionStatusGUI = "";
-        private int _currentAsioAudioSourceGUIIndex = 0;
-        private string _currentAsioAudioSourceGUIStatus = "Stopped";
-        private string _asioDriverNameGUI = "";
-        private string _targetSampleRateGUI = "";
-        private string _targetBitsPerSampleGUI = "";
-
-        private MultiplexingWaveProvider _globalMultiplexingWaveProvider;
-        public MultiplexingWaveProvider GlobalMultiplexingWaveProvider
-        {
-            get { return _globalMultiplexingWaveProvider; }
-            private set { _globalMultiplexingWaveProvider = value; }
-        }
-
         private AsioOut _asioOutPlayer;
         public AsioOut AsioOutPlayer
         {
@@ -116,11 +126,236 @@ namespace AsioAudioUnity
             private set { _asioOutPlayer = value; }
         }
 
+        /// <summary>
+        /// True when the ASIO driver is connected and playing.
+        /// </summary>
+        public bool IsConnected => AsioOutPlayer != null;
+
+        // Mixes all sources into one stream for the driver. Only exists while connected.
+        private AsioMixer _mixer;
+
+        // The configuration of the last connection attempt, to detect changes made from the Inspector (which bypass the property setters).
+        private string _attemptedDriverName;
+        private int _attemptedSampleRate;
+        private BitsPerSample _attemptedBitsPerSample;
+
+        private bool _displayModeClear = false;
+        private int _currentAsioAudioSourceGUIIndex = 0;
+        private string _currentAsioAudioSourceGUIStatus = "Stopped";
+        private string _asioDriverNameGUI = "";
+        private string _targetSampleRateGUI = "";
+        private string _targetBitsPerSampleGUI = "";
+
+        private void Awake()
+        {
+            OnAsioDriverNameChanged ??= new UnityEvent();
+            OnTargetSampleRateChanged ??= new UnityEvent();
+            OnTargetBitsPerSampleChanged ??= new UnityEvent();
+            CustomAsioAudioSources ??= new List<CustomAsioAudioSource>();
+
+            _asioDriverNameGUI = AsioDriverName;
+            _targetSampleRateGUI = TargetSampleRate.ToString();
+            _targetBitsPerSampleGUI = ((int)TargetBitsPerSample).ToString();
+        }
+
+        private void OnEnable()
+        {
+            Connect();
+        }
+
+        private void Update()
+        {
+            // Settings edited in the Inspector during Play mode don't go through the property setters.
+            if (_attemptedDriverName != AsioDriverName || _attemptedSampleRate != TargetSampleRate || _attemptedBitsPerSample != TargetBitsPerSample)
+            {
+                Reconnect();
+            }
+
+            ApplyMuteAndSolo();
+        }
+
+        // When any source is soloed, every source that isn't soloed is muted.
+        private void ApplyMuteAndSolo()
+        {
+            bool anySolo = false;
+            foreach (CustomAsioAudioSource customAsioAudioSource in CustomAsioAudioSources)
+            {
+                if (customAsioAudioSource && customAsioAudioSource.Solo) { anySolo = true; break; }
+            }
+
+            foreach (CustomAsioAudioSource customAsioAudioSource in CustomAsioAudioSources)
+            {
+                if (customAsioAudioSource) customAsioAudioSource.SetEffectiveMute(customAsioAudioSource.Mute || (anySolo && !customAsioAudioSource.Solo));
+            }
+        }
+
+        private void OnDisable()
+        {
+            Disconnect();
+        }
+
+        private void OnApplicationQuit()
+        {
+            Disconnect();
+        }
+
+        private void ApplyConfigurationChange()
+        {
+            if (Application.isPlaying && isActiveAndEnabled) Reconnect();
+        }
+
+        /// <summary>
+        /// Disconnects from the ASIO driver and connects again with the current settings. Sources keep their state and position.
+        /// </summary>
+        public void Reconnect()
+        {
+            Disconnect();
+            Connect();
+        }
+
+        /// <summary>
+        /// Connects to the ASIO driver set in AsioDriverName, and starts playing the mix of all registered sources.
+        /// Errors are logged, and the manager stays disconnected.
+        /// </summary>
+        private bool Connect()
+        {
+            if (IsConnected) return true;
+
+            _attemptedDriverName = AsioDriverName;
+            _attemptedSampleRate = TargetSampleRate;
+            _attemptedBitsPerSample = TargetBitsPerSample;
+
+            if (string.IsNullOrEmpty(AsioDriverName))
+            {
+                Debug.LogError("ASIO Audio Manager: no ASIO driver name is set. Available drivers: " + GetAvailableDriverNamesText());
+                return false;
+            }
+
+            if (!AsioOut.GetDriverNames().Contains(AsioDriverName))
+            {
+                Debug.LogError("ASIO Audio Manager: the ASIO driver \"" + AsioDriverName + "\" was not found on the system. Available drivers: " + GetAvailableDriverNamesText());
+                return false;
+            }
+
+            AsioOut asioOut = null;
+            try
+            {
+                asioOut = new AsioOut(AsioDriverName);
+                AsioDriverInputChannelCount = asioOut.DriverInputChannelCount;
+                AsioDriverOutputChannelCount = asioOut.DriverOutputChannelCount;
+
+                if (AsioDriverOutputChannelCount <= 0) throw new Exception("the driver has no output channels.");
+
+                // Use all the driver's outputs, so any source can target any channel without reconnecting.
+                AsioMixer mixer = new AsioMixer(TargetSampleRate, AsioDriverOutputChannelCount);
+                foreach (CustomAsioAudioSource customAsioAudioSource in CustomAsioAudioSources)
+                {
+                    if (customAsioAudioSource == null || customAsioAudioSource.Voice == null) continue;
+                    customAsioAudioSource.Voice.SetOutputSampleRate(TargetSampleRate);
+                    mixer.AddVoice(customAsioAudioSource.Voice);
+                }
+
+                IWaveProvider output = TargetBitsPerSample == BitsPerSample.Bits16 ? mixer.ToWaveProvider16() : mixer.ToWaveProvider();
+                asioOut.Init(output);
+                asioOut.Play();
+
+                _mixer = mixer;
+                AsioOutPlayer = asioOut;
+                return true;
+            }
+            catch (Exception e)
+            {
+                Debug.LogError("ASIO Audio Manager: could not start the ASIO driver \"" + AsioDriverName + "\" at " + TargetSampleRate + " Hz, " + (int)TargetBitsPerSample + " bits: " + e.GetBaseException().Message);
+                asioOut?.Dispose();
+                return false;
+            }
+        }
+
+        private void Disconnect()
+        {
+            if (AsioOutPlayer != null)
+            {
+                AsioOutPlayer.Stop();
+                AsioOutPlayer.Dispose();
+                AsioOutPlayer = null;
+            }
+            _mixer = null;
+        }
+
+        private static string GetAvailableDriverNamesText()
+        {
+            string[] driverNames = AsioOut.GetDriverNames();
+            return driverNames.Length == 0 ? "(none)" : "\"" + string.Join("\", \"", driverNames) + "\"";
+        }
+
+        /// <summary>
+        /// Check if the ASIO Audio Source is valid, returns true if added to the list of ASIO Audio Sources, false otherwise.
+        /// </summary>
+        /// <param name="customAsioAudioSource">The ASIO Audio Source to check.</param>
+        /// <returns></returns>
+        public bool RequestAddAsioAudioSource(CustomAsioAudioSource customAsioAudioSource)
+        {
+            // Check if file name is empty
+            if (string.IsNullOrEmpty(customAsioAudioSource.AudioFilePath))
+            {
+                Debug.LogError("The ASIO Audio Source attached to GameObject \"" + customAsioAudioSource.gameObject.name + "\" doesn't have any Audio File Name specified. It will be ignored.");
+            }
+            // Check if target output channel is not specified
+            else if (customAsioAudioSource.TargetOutputChannel <= 0)
+            {
+                Debug.LogError("The ASIO Audio Source attached to GameObject \"" + customAsioAudioSource.gameObject.name + "\" doesn't have any Target Output Channel specified. It will be ignored.");
+            }
+            // Check if target output channel exists on the driver
+            else if (IsConnected && customAsioAudioSource.TargetOutputChannel > AsioDriverOutputChannelCount)
+            {
+                Debug.LogError("The ASIO Audio Source attached to GameObject \"" + customAsioAudioSource.gameObject.name + "\" targets output channel " + customAsioAudioSource.TargetOutputChannel + ", but the ASIO driver \"" + AsioDriverName + "\" only has " + AsioDriverOutputChannelCount + " output channels. It will be ignored.");
+            }
+            // Check if target output channel is specified on another ASIO Audio Source
+            else if (CustomAsioAudioSources.Any((otherCustomAsioAudioSource) => otherCustomAsioAudioSource != customAsioAudioSource && otherCustomAsioAudioSource.TargetOutputChannel == customAsioAudioSource.TargetOutputChannel))
+            {
+                Debug.LogError("The targeted output channel of the ASIO Audio Source attached to GameObject \"" + customAsioAudioSource.gameObject.name + "\" is already specified on another ASIO Audio Source, and needs to be unique. It will be ignored.");
+            }
+            // Check if the ASIO Audio Source is already associated with another ASIO Audio Manager
+            else if (customAsioAudioSource.ReferencedAsioAudioManager && customAsioAudioSource.ReferencedAsioAudioManager != this)
+            {
+                Debug.LogError("The ASIO Audio Source attached to GameObject \"" + customAsioAudioSource.gameObject.name + "\" is already associated with another ASIO Audio Manager. It will be ignored.");
+            }
+            else
+            {
+                customAsioAudioSource.ReferencedAsioAudioManager = this;
+                if (!CustomAsioAudioSources.Contains(customAsioAudioSource)) CustomAsioAudioSources.Add(customAsioAudioSource);
+                if (_mixer != null && customAsioAudioSource.Voice != null) _mixer.AddVoice(customAsioAudioSource.Voice);
+                return true;
+            }
+
+            if (customAsioAudioSource.ReferencedAsioAudioManager == this) customAsioAudioSource.ReferencedAsioAudioManager = null;
+            RemoveFromMix(customAsioAudioSource);
+            return false;
+        }
+
+        /// <summary>
+        /// Remove an ASIO Audio Source from the list of ASIO Audio Sources, returns true if removed, false otherwise.
+        /// </summary>
+        /// <param name="customAsioAudioSource">The ASIO Audio Source to remove.</param>
+        /// <returns></returns>
+        public bool RequestRemoveAsioAudioSource(CustomAsioAudioSource customAsioAudioSource)
+        {
+            if (!CustomAsioAudioSources.Contains(customAsioAudioSource)) return false;
+
+            customAsioAudioSource.ReferencedAsioAudioManager = null;
+            RemoveFromMix(customAsioAudioSource);
+            return true;
+        }
+
+        private void RemoveFromMix(CustomAsioAudioSource customAsioAudioSource)
+        {
+            CustomAsioAudioSources.Remove(customAsioAudioSource);
+            if (_mixer != null && customAsioAudioSource.Voice != null) _mixer.RemoveVoice(customAsioAudioSource.Voice);
+        }
+
         private void OnGUI()
         {
             if (!DisplayInfoOnGameWindow) return;
-
-            //GUI.backgroundColor = _displayModeClear ? Color.black : Color.white;
 
             float horizontalOffset = 20;
             float verticalOffset = 280;
@@ -151,7 +386,7 @@ namespace AsioAudioUnity
 
             GUIStyle connectionStyle = new GUIStyle();
             connectionStyle.fontSize = 15;
-            connectionStyle.normal.textColor = _connectionStatusGUI == "OK" ? Color.green : Color.red;
+            connectionStyle.normal.textColor = IsConnected ? Color.green : Color.red;
 
             GUIStyle modifiedStyle = new GUIStyle(standardStyle);
             modifiedStyle.normal.textColor = Color.yellow;
@@ -177,26 +412,20 @@ namespace AsioAudioUnity
                 AsioDriverName = _asioDriverNameGUI;
 
             GUI.Label(new Rect(10, 20 + horizontalOffset * 2, verticalOffset - 10, horizontalOffset), "ASIO Driver connection:", standardStyle);
-
-
-            _connectionStatusGUI = (AsioOutPlayer != null) ? "OK" : "Error";
-
-            GUI.Label(new Rect(10 + verticalOffset, 20 + horizontalOffset * 2, verticalOffset - 10, horizontalOffset), _connectionStatusGUI, connectionStyle);
+            GUI.Label(new Rect(10 + verticalOffset, 20 + horizontalOffset * 2, verticalOffset - 10, horizontalOffset), IsConnected ? "OK" : "Error", connectionStyle);
 
             GUI.Label(new Rect(10, 20 + horizontalOffset * 3, verticalOffset - 10, horizontalOffset), "Number of supported channels:", standardStyle);
-            GUI.Label(new Rect(10 + verticalOffset, 20 + horizontalOffset * 3, verticalOffset - 10, horizontalOffset), AsioDriverInputChannelCount.ToString(), standardStyle);
+            GUI.Label(new Rect(10 + verticalOffset, 20 + horizontalOffset * 3, verticalOffset - 10, horizontalOffset), AsioDriverOutputChannelCount.ToString(), standardStyle);
 
             GUI.Label(new Rect(10, 20 + horizontalOffset * 4, verticalOffset - 10, horizontalOffset), "Target Sample Rate (Hz):", standardStyle);
             _targetSampleRateGUI = GUI.TextField(new Rect(10 + verticalOffset, 20 + horizontalOffset * 4, (2 * verticalOffset / 3) - 10, horizontalOffset), _targetSampleRateGUI, _targetSampleRateGUI == TargetSampleRate.ToString() ? standardStyle : modifiedStyle);
             if (GUI.Button(new Rect(5 + (10 * verticalOffset / 6), 20 + horizontalOffset * 4, (2 * verticalOffset / 6) - 10, horizontalOffset), "Set", buttonStyle))
             {
-                if (int.TryParse(_targetSampleRateGUI, out _targetSampleRate))
+                if (int.TryParse(_targetSampleRateGUI, out int targetSampleRateParsed) && targetSampleRateParsed > 0)
                 {
-                    int targetSampleRateParsed = int.Parse(_targetSampleRateGUI);
-                    if (targetSampleRateParsed != TargetSampleRate) TargetSampleRate = targetSampleRateParsed;
+                    TargetSampleRate = targetSampleRateParsed;
                 }
             }
-            //TargetSampleRate = int.TryParse(_targetSampleRateGUI, out _targetSampleRate) ? int.Parse(_targetSampleRateGUI) : TargetSampleRate; 
 
             GUI.Label(new Rect(10, 20 + horizontalOffset * 5, verticalOffset - 10, horizontalOffset), "Target Bits Per Sample:", standardStyle);
             _targetBitsPerSampleGUI = GUI.TextField(new Rect(10 + verticalOffset, 20 + horizontalOffset * 5, (2 * verticalOffset / 3) - 10, horizontalOffset), _targetBitsPerSampleGUI, _targetBitsPerSampleGUI == ((int)TargetBitsPerSample).ToString() ? standardStyle : modifiedStyle);
@@ -212,7 +441,6 @@ namespace AsioAudioUnity
             if (CustomAsioAudioSources.Count == 0) return;
             if (_currentAsioAudioSourceGUIIndex < 0 || _currentAsioAudioSourceGUIIndex >= CustomAsioAudioSources.Count) _currentAsioAudioSourceGUIIndex = 0;
 
-
             if (GUI.Button(new Rect(15, 25 + horizontalOffset * 7, 50, horizontalOffset), "<-", buttonStyle))
             {
                 _currentAsioAudioSourceGUIIndex--;
@@ -224,24 +452,26 @@ namespace AsioAudioUnity
                 if (_currentAsioAudioSourceGUIIndex >= CustomAsioAudioSources.Count) _currentAsioAudioSourceGUIIndex = 0;
             }
 
-            GUI.Label(new Rect(65, 25 + horizontalOffset * 7, 2 * verticalOffset - 2 * 65 , 20), CustomAsioAudioSources[_currentAsioAudioSourceGUIIndex].gameObject.name, asioSourceTitleStyle);
+            CustomAsioAudioSource currentSource = CustomAsioAudioSources[_currentAsioAudioSourceGUIIndex];
+
+            GUI.Label(new Rect(65, 25 + horizontalOffset * 7, 2 * verticalOffset - 2 * 65 , 20), currentSource.gameObject.name, asioSourceTitleStyle);
 
             GUI.Label(new Rect(15, 25 + horizontalOffset * 8, verticalOffset - 15, horizontalOffset), "Audio File Name:", standardStyle);
-            GUI.Label(new Rect(15 + verticalOffset, 25 + horizontalOffset * 8, verticalOffset - 15, horizontalOffset), Path.GetFileName(CustomAsioAudioSources[_currentAsioAudioSourceGUIIndex].AudioFilePath), standardStyle);
+            GUI.Label(new Rect(15 + verticalOffset, 25 + horizontalOffset * 8, verticalOffset - 15, horizontalOffset), Path.GetFileName(currentSource.AudioFilePath), standardStyle);
 
             GUI.Label(new Rect(15, 25 + horizontalOffset * 9, verticalOffset - 15, horizontalOffset), "Target Output Channel:", standardStyle);
-            GUI.Label(new Rect(15 + verticalOffset, 25 + horizontalOffset * 9, verticalOffset - 15, horizontalOffset), CustomAsioAudioSources[_currentAsioAudioSourceGUIIndex].TargetOutputChannel.ToString(), standardStyle);
+            GUI.Label(new Rect(15 + verticalOffset, 25 + horizontalOffset * 9, verticalOffset - 15, horizontalOffset), currentSource.TargetOutputChannel.ToString(), standardStyle);
 
             GUI.Label(new Rect(15, 25 + horizontalOffset * 10, verticalOffset - 15, horizontalOffset), "Audio Status:", standardStyle);
 
             GUIStyle audioStatusStyle = new GUIStyle();
             audioStatusStyle.fontSize = 15;
-            if (CustomAsioAudioSources[_currentAsioAudioSourceGUIIndex].AudioStatus == AsioAudioStatus.Playing)
+            if (currentSource.AudioStatus == AsioAudioStatus.Playing)
             {
                 audioStatusStyle.normal.textColor = Color.green;
                 _currentAsioAudioSourceGUIStatus = "Playing";
             }
-            else if (CustomAsioAudioSources[_currentAsioAudioSourceGUIIndex].AudioStatus == AsioAudioStatus.Paused)
+            else if (currentSource.AudioStatus == AsioAudioStatus.Paused)
             {
                 audioStatusStyle.normal.textColor = Color.yellow;
                 _currentAsioAudioSourceGUIStatus = "Paused";
@@ -255,243 +485,18 @@ namespace AsioAudioUnity
 
             if (GUI.Button(new Rect(15, 25 + horizontalOffset * 11, (2 * verticalOffset / 3) - 10, 3 * horizontalOffset / 2), "Play", buttonStyle))
             {
-                CustomAsioAudioSources[_currentAsioAudioSourceGUIIndex].Play();
+                currentSource.Play();
             }
 
             if (GUI.Button(new Rect(10 + (2 * verticalOffset / 3), 25 + horizontalOffset * 11, (2 * verticalOffset / 3) - 10, 3 * horizontalOffset / 2), "Pause", buttonStyle))
             {
-                CustomAsioAudioSources[_currentAsioAudioSourceGUIIndex].Pause();
+                currentSource.Pause();
             }
 
             if (GUI.Button(new Rect(5 + (4 * verticalOffset / 3), 25 + horizontalOffset * 11, (2 * verticalOffset / 3) - 10, 3 * horizontalOffset / 2), "Stop", buttonStyle))
             {
-                CustomAsioAudioSources[_currentAsioAudioSourceGUIIndex].Stop();
-            }    
-        }
-
-        private void Awake()
-        {
-            OnAsioDriverNameChanged = new UnityEvent();
-            OnTargetSampleRateChanged = new UnityEvent();
-            OnTargetBitsPerSampleChanged = new UnityEvent();
-
-            _asioDriverNameGUI = AsioDriverName;
-            _targetSampleRateGUI = TargetSampleRate.ToString();
-            _targetBitsPerSampleGUI = ((int)TargetBitsPerSample).ToString();
-
-            ConnectToAsioDriver();
-        }
-
-        private void Start()
-        {
-            OnAsioDriverNameChanged.AddListener(delegate { ConnectMixAndPlay(true); });
-            OnTargetSampleRateChanged.AddListener(delegate { ConnectMixAndPlay(true); });
-            OnTargetBitsPerSampleChanged.AddListener(delegate { ConnectMixAndPlay(true); });
-        }
-
-        /// <summary>
-        /// Intialise AsioOutPlayer by establishing the connection to a specified ASIO driver, whose name is set on AsioDriverName property.
-        /// </summary>
-        private void ConnectToAsioDriver()
-        {
-            if (string.IsNullOrEmpty(AsioDriverName))
-            {
-                throw new Exception("The ASIO driver was not specified.");
+                currentSource.Stop();
             }
-
-            AsioOut asioOutPlayer;
-            string[] driverNames = AsioOut.GetDriverNames();
-            foreach (var driverName in driverNames)
-            {
-                if (driverName == AsioDriverName)
-                {
-                    try
-                    {
-                        asioOutPlayer = new AsioOut(driverName);
-                        AsioDriverInputChannelCount = asioOutPlayer.DriverInputChannelCount;
-                        AsioOutPlayer = asioOutPlayer;
-                        return;
-                    }
-                    catch (Exception e)
-                    {
-                        AsioOutPlayer = null;
-                        throw e.GetBaseException();
-                    }
-                }
-            }
-            AsioOutPlayer = null;
-            throw new Exception("The ASIO driver \"" + AsioDriverName + "\" was not found on the system.");
-        }
-
-        /// <summary>
-        /// Check if the ASIO Audio Source is valid, returns true if added to the list of ASIO Audio Sources, false otherwise.
-        /// </summary>
-        /// <param name="customAsioAudioSource">The ASIO Audio Source to check.</param>
-        /// <returns></returns>
-        public bool RequestAddAsioAudioSource(CustomAsioAudioSource customAsioAudioSource)
-        {
-            // Check if file name is empty
-            if (string.IsNullOrEmpty(customAsioAudioSource.AudioFilePath))
-            {
-                Debug.LogError("The ASIO Audio Source attached to GameObject \"" + customAsioAudioSource.gameObject.name + "\" doesn't have any Audio File Name specified. It will be ignored.");
-            }
-            // Check if target output channel is not specified
-            else if (customAsioAudioSource.TargetOutputChannel <= 0)
-            {
-                Debug.LogError("The ASIO Audio Source attached to GameObject \"" + customAsioAudioSource.gameObject.name + "\" doesn't have any Target Output Channel specified. It will be ignored.");
-            }
-            // Check if target output channel is specified on another ASIO Audio Source
-            else if (CustomAsioAudioSources.Find((targetCustomAsioAudioSource) => targetCustomAsioAudioSource.TargetOutputChannel == customAsioAudioSource.TargetOutputChannel) != null &&
-                CustomAsioAudioSources.Find((targetCustomAsioAudioSource) => targetCustomAsioAudioSource.TargetOutputChannel == customAsioAudioSource.TargetOutputChannel) != customAsioAudioSource)
-            {
-                Debug.LogError("The targeted output channel of the ASIO Audio Source attached to GameObject \"" + customAsioAudioSource.gameObject.name + "\" is already specified on another ASIO Audio Source, and needs to be unique. It will be ignored.");
-            }
-            // Check if the ASIO Audio Source is already associated with another ASIO Audio Manager
-            else if (customAsioAudioSource.ReferencedAsioAudioManager && customAsioAudioSource.ReferencedAsioAudioManager != this)
-            {
-                Debug.LogError("The ASIO Audio Source attached to GameObject \"" + customAsioAudioSource.gameObject.name + "\" is already associated with another ASIO Audio Manager. It will be ignored.");
-            }
-            else
-            {
-                customAsioAudioSource.ReferencedAsioAudioManager = this;
-                if (!CustomAsioAudioSources.Contains(customAsioAudioSource)) CustomAsioAudioSources.Add(customAsioAudioSource);
-                return true;
-            }
-
-            if (customAsioAudioSource.ReferencedAsioAudioManager == this) customAsioAudioSource.ReferencedAsioAudioManager = null;
-            if (CustomAsioAudioSources.Contains(customAsioAudioSource)) CustomAsioAudioSources.Remove(customAsioAudioSource);
-            return false;
-        }
-
-        /// <summary>
-        /// Remove an ASIO Audio Source from the list of ASIO Audio Sources, returns true if removed, false otherwise.
-        /// </summary>
-        /// <param name="customAsioAudioSource">The ASIO Audio Source to remove.</param>
-        /// <returns></returns>
-        public bool RequestRemoveAsioAudioSource(CustomAsioAudioSource customAsioAudioSource)
-        {
-            if (CustomAsioAudioSources.Contains(customAsioAudioSource))
-            {
-                customAsioAudioSource.ReferencedAsioAudioManager = null;
-                CustomAsioAudioSources.Remove(customAsioAudioSource);
-                return true;
-            }
-            return false;
-        }
-
-        /// <summary>
-        /// Setup the global provider by associating each ASIO Audio Source to a specific output channel on the ASIO driver.
-        /// </summary>
-        private void SetGlobalMultiplexingWaveProvider()
-        {
-            if (CustomAsioAudioSources.Count > AsioDriverInputChannelCount)
-            {
-                throw new Exception("There is more audio channels from all ASIO Audio Sources (" + CustomAsioAudioSources.Count + ") than there is input channels on the ASIO driver (" + AsioDriverInputChannelCount + ")." +
-                    "Consider removing ASIO Audio Sources or reducing the amount of input channels (TargetSampleChannelCount) per track in an ASIO Audio Source.");
-            }
-            if (CustomAsioAudioSources.Select((customAsioAudioSource) => customAsioAudioSource.TargetOutputChannel).Distinct().Count() != CustomAsioAudioSources.Count)
-            {
-                throw new Exception("There are ASIO Audio Sources with the same Target Output Channel. Each ASIO Audio Source must have a unique Target Output Channel.");
-            }
-
-            int numberOfOutputChannels = CustomAsioAudioSources.Max((customAsioAudioSource) => customAsioAudioSource.TargetOutputChannel);
-            IWaveProvider[] asioSourcesWaveProviders = new IWaveProvider[numberOfOutputChannels];
-
-            for (int i = 0; i < numberOfOutputChannels; i++)
-            {
-                CustomAsioAudioSource customAsioAudioSourceFound = CustomAsioAudioSources.Find((customAsioAudioSource) => customAsioAudioSource.TargetOutputChannel == i + 1);
-
-                if (customAsioAudioSourceFound != null)
-                {
-                    if (customAsioAudioSourceFound.SourceWaveProvider == null)
-                    {
-                        throw new NullReferenceException("Cannot create the Global Multiplexing Wave Provider because the Wave Provider of the ASIO Audio Source attached to GameObject \"" + customAsioAudioSourceFound.gameObject.name + "\" is not yet set. The process will be aborted.");
-                    }
-                    else
-                    {
-                        if (customAsioAudioSourceFound.AudioStatus == AsioAudioStatus.Playing) asioSourcesWaveProviders[i] = customAsioAudioSourceFound.SourceWaveProvider;
-                        else asioSourcesWaveProviders[i] = new SilenceProvider(customAsioAudioSourceFound.SourceWaveProvider.WaveFormat);
-                    }
-                }
-                else
-                {
-                    if (TargetBitsPerSample == BitsPerSample.Bits16) asioSourcesWaveProviders[i] = new SilenceProvider(new WaveFormat(TargetSampleRate, 1));
-                    if (TargetBitsPerSample == BitsPerSample.Bits32) asioSourcesWaveProviders[i] = new SilenceProvider(WaveFormat.CreateIeeeFloatWaveFormat(TargetSampleRate, 1));
-                }
-            }
-
-            try
-            {
-                GlobalMultiplexingWaveProvider = new MultiplexingWaveProvider(asioSourcesWaveProviders, -1);
-
-                for (int i = 0; i < asioSourcesWaveProviders.Length; i++)
-                {
-                    GlobalMultiplexingWaveProvider.ConnectInputToOutput(i, i);
-                }
-            }
-            catch (Exception e)
-            {
-                foreach (CustomAsioAudioSource customAsioAudioSource in CustomAsioAudioSources) customAsioAudioSource.Pause();
-                throw e.GetBaseException();
-            }
-
-        }
-
-        /// <summary>
-        /// Connect to the referenced ASIO driver, set the global multiplexing provider from all ASIO Audio Sources, and play the ASIO Audio Sources marked as Playing.
-        /// </summary>
-        /// <param name="reinitialiseSamples"> If true, the samples will be reinitialised from the file name. If false, the samples will be kept as is.</param>
-        public void ConnectMixAndPlay(bool reinitialiseSamples)
-        {
-            try
-            {
-                if (AsioOutPlayer != null)
-                {
-                    AsioOutPlayer.Stop();
-                    AsioOutPlayer.Dispose();
-                    AsioOutPlayer = null;
-                }
-
-                ConnectToAsioDriver();
-
-                foreach (CustomAsioAudioSource customAsioAudioSource in CustomAsioAudioSources)
-                {
-                    customAsioAudioSource.DestroySourceWaveProvider();
-                    customAsioAudioSource.SetSourceWaveProviderFromFileName(reinitialiseSamples, true, true);
-                }
-
-                GlobalMultiplexingWaveProvider = null;
-                SetGlobalMultiplexingWaveProvider();
-
-                AsioOutPlayer.Init(GlobalMultiplexingWaveProvider);
-                AsioOutPlayer.Play();
-            }
-            catch (Exception e)
-            {
-                throw e.GetBaseException();
-            }
-        }
-
-        private void OnDisable()
-        {
-            if (AsioOutPlayer != null)
-            {
-                AsioOutPlayer.Stop();
-                AsioOutPlayer.Dispose();
-                AsioOutPlayer = null;
-            }
-            GlobalMultiplexingWaveProvider = null;
-        }
-
-        private void OnApplicationQuit()
-        {
-            if (AsioOutPlayer != null)
-            {
-                AsioOutPlayer.Stop();
-                AsioOutPlayer.Dispose();
-                AsioOutPlayer = null;
-            }
-            GlobalMultiplexingWaveProvider = null;
         }
     }
 }

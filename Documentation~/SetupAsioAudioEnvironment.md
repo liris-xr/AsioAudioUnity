@@ -15,21 +15,23 @@ The component [CustomAsioAudioSource](/Documentation~/Audio%20Components/CustomA
 However, for all the [CustomAsioAudioSource](/Documentation~/Audio%20Components/CustomAsioAudioSource.md) components to work, we need an [AsioAudioManager](/Documentation~/Audio%20Components/AsioAudioManager.md) component on scene.
 
 There is multiple reasons that justify the need of this component:
-- [CustomAsioAudioSource](/Documentation~/Audio%20Components/CustomAsioAudioSource.md) components can't actually send audio samples data independently from each other, so a manager is needed to regroup them together to send a multiplexed audio samples object on the ASIO driver.
+- [CustomAsioAudioSource](/Documentation~/Audio%20Components/CustomAsioAudioSource.md) components can't send audio to the ASIO driver independently from each other, so a manager keeps one connection to the driver and continuously mixes all sources into it (each source on its own output channel).
 
-- Audio samples from [CustomAsioAudioSource](/Documentation~/Audio%20Components/CustomAsioAudioSource.md) components need to respect a certain audio sample rate and bit depth (bits per sample), so a manager is needed to tell [CustomAsioAudioSource](/Documentation~/Audio%20Components/CustomAsioAudioSource.md) components the potential conversion to make them work.
+- The ASIO driver runs at one sample rate and bit depth (bits per sample), set on the manager. Audio files can have any sample rate: each source mixes its file down to mono and resamples it on the fly to the manager's sample rate. No converted files are written to disk.
 
-- ASIO drivers support a limited number of input channels, and each [CustomAsioAudioSource](/Documentation~/Audio%20Components/CustomAsioAudioSource.md) component has be played on a specific channel, so a manager is needed to handle verification of [CustomAsioAudioSource](/Documentation~/Audio%20Components/CustomAsioAudioSource.md) `TargetOutputChannel` properties (validity and no duplicate).
+- ASIO drivers support a limited number of output channels, and each [CustomAsioAudioSource](/Documentation~/Audio%20Components/CustomAsioAudioSource.md) component has to be played on a specific channel, so a manager is needed to handle verification of [CustomAsioAudioSource](/Documentation~/Audio%20Components/CustomAsioAudioSource.md) `TargetOutputChannel` properties (validity and no duplicate).
+
+Playing, pausing or stopping a source (or changing its volume, loop or output channel) is instant and doesn't interrupt the other sources: the driver keeps running. Only changing the manager's driver, sample rate or bit depth reconnects the driver (sources keep their state and position).
 
 Here is a concrete example of the ASIO audio workflow:
 
 ```mermaid
 graph LR
-    A["AsioAudioManager (Target 48000 Hz, 32 bit)<br>"] --> n13["Audio Samples 1 playing on channel 1<br>"] & n14["Silence on channel 2<br>"] & n15["Audio Samples 3 playing on channnel 3<br>"] & n16["Silence on channel 4 <br>"]
-    n1["Audio Samples 1 (converted to 48000 Hz, 32 bit)<br>"] -- Play() --> A
-    n2["Audio Samples 2 (converted to 48000 Hz)<br>"] -- Stop() --> A
-    n3["Audio Samples 3 (converted to 32 bit)<br>"] -- Play() --> A
-    n4["Audio Samples 4<br>"] -- Pause() --> A
+    A["AsioAudioManager mixer (48000 Hz, 32 bit)<br>"] --> n13["Audio Samples 1 playing on channel 1<br>"] & n14["Silence on channel 2<br>"] & n15["Audio Samples 3 playing on channnel 3<br>"] & n16["Silence on channel 4 <br>"]
+    n1["Audio Samples 1 (mono, resampled to 48000 Hz)<br>"] -- Play() --> A
+    n2["Audio Samples 2 (mono, resampled to 48000 Hz)<br>"] -- Stop() --> A
+    n3["Audio Samples 3 (mono)<br>"] -- Play() --> A
+    n4["Audio Samples 4 (mono)<br>"] -- Pause() --> A
     n5["CustomAsioAudioSource 1<br>"] -- Target Channel 1 --> n1
     n6["CustomAsioAudioSource 2<br>"] -- Target Channel 2 --> n2
     n7["CustomAsioAudioSource 3<br>"] -- Target Channel 3 --> n3
@@ -72,9 +74,9 @@ To add an [AsioAudioManager](/Documentation~/Audio%20Components/AsioAudioManager
 
 Once the [AsioAudioManager](/Documentation~/Audio%20Components/AsioAudioManager.md) is put in scene, you can set the `AsioDriverName` field with the ASIO driver name you want to connect to. If the name is correctly set, you shouldn't have any errors on the console. Moreover you can see connection status by setting the `DisplayInfoOnGameWindow` property to `true` (or ticking the corresponding box in the Inspector).
 
-As channels are limited on ASIO drivers, you can see how many channels are available on the ASIO driver you specified by looking at the `AsioInputDriverChannelCount` property when starting the application.
+As channels are limited on ASIO drivers, you can see how many output channels are available on the ASIO driver you specified by looking at the `AsioDriverOutputChannelCount` property when starting the application.
 
-Finally, make sure to correctly set `TargetSampleRate` and `TargetBitsPerSample` properties so it matches the available sample rate and bit depth of the ASIO driver, or you will get errors.
+Finally, make sure to set `TargetSampleRate` to a sample rate supported by the ASIO driver (some drivers, like ReaRoute, only accept the sample rate of their host application), or the connection will fail with an error in the console. `TargetBitsPerSample` sets the format sent to the driver (16-bit integer or 32-bit float).
 
 ### Setup ASIO Audio Sources
 

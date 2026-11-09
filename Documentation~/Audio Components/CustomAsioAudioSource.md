@@ -4,13 +4,11 @@ The CustomAsioAudioSource component is designed to manage audio playback using t
 
 ### Typical Workflow and Features
 
-1. Audio File Setup: The audio file is loaded (and converted if needed) to wave samples on object `SourceWaveProvider`, and configured for playback.
-    > **Note:** If the file needs conversion, the component will convert the audio samples AND create a new audio file to a new path, thus changing the `AudioFilePath` to the converted path by adding `_newSampleRate_newBitsPerSample` at the end of the file name. However, the original file path is still stored in `OriginalAudioFilePath`.
-
-    > **Example:** If the original path of the file was `Folder/OriginalSound.wav` encoded in 44100 Hz - 32 bit, and a conversion is needed to 48000 Hz - 32 bit, the audio samples will be converted to desired sample rate, a new audio file will be created, and the new `AudioFilePath` will be `Folder/OriginalSound_48000_32.wav`
+1. Audio File Setup: When the component is enabled, the audio file is opened, mixed down to mono, and resampled on the fly to the [AsioAudioManager](/Documentation~/Audio%20Components/AsioAudioManager.md)'s `TargetSampleRate`. Files can have any sample rate and bit depth: nothing is converted or written to disk. The file's own format is shown in the read-only properties (`SampleRate`, `Channels`, `BitsPerSample`...).
 2. Playback:
-    - The Play, Pause, Stop, and Restart methods control playback, by sending signal to [AsioAudioManager](/Documentation~/Audio%20Components/AsioAudioManager.md).
-    - The [AsioAudioManager](/Documentation~/Audio%20Components/AsioAudioManager.md) coordinates playback across multiple sources.
+    - The Play, Pause, Stop, Restart and Seek methods control playback instantly, without interrupting the other sources. Play, Pause and Stop fade in or out over 5 ms to avoid clicks.
+    - `Volume` (applied smoothly), `Loop` (seamless) and `TargetOutputChannel` can be changed while playing, from code or from the Inspector.
+    - `CurrentTimestamp` follows the position actually played by the ASIO driver. When a non-looping file reaches its end, the source stops and `OnStop` is triggered.
 3. Integration: The component communicates with the [AsioAudioManager](/Documentation~/Audio%20Components/AsioAudioManager.md) to ensure proper playback synchronization and configuration.
 
 #### Properties Setup
@@ -19,7 +17,13 @@ For each CustomAsioAudioSource component, you can attach an audio file. For this
 
 <img src="/Documentation~/pictures/asioaudiosourceaudiobox.png" alt="drawing" width="800"/>
 
-By dropping the audio file, you should see that the `AudioFilePath` property has been filled in with the path to the file.
+By dropping the audio file (or picking one with the *Browse…* button), you should see the file name in the box, along with its length and format. Files inside the project are stored with a project-relative path; files outside the project work in the Editor but are not copied to builds.
+
+The Inspector also shows:
+- **Playback**: the status and a progress bar (click or drag it to seek in Play mode), and Play / Pause / Stop buttons (enabled in Play mode).
+- **Output**: the output channel, picked from a list of the driver's channels showing which ones are already used (with a warning on conflicts), the volume with a level meter in Play mode, and Mute / Solo.
+
+All the sources of the scene can also be controlled side by side from the mixer window (*AsioAudioUnity > ASIO Mixer*, or *Window > Audio > ASIO Mixer*).
 > **Warning:** The accepted audio file formats are: .mp3, .wav, .ogg, .aiff, .flac, but **only .wav has been tested for now**. So please note it is quite likely that the other formats may not work at this moment!
 
 Next, fill in the `TargetOutputChannel` so it is valid (from 1 to the available number of channels on the ASIO driver) and unique among the other CustomAsioAudioSource components.
@@ -51,16 +55,20 @@ public class PlayAsioSourceAndLoop : MonoBehaviour
 
 | **Property** | **Description** |
 |-|-|
-| `AudioFilePath` | The path to the audio file to be played, might be converted if needed. |
-| `OriginalAudioFilePath` | The original unconverted path of the audio file (Read Only). |
-| `TargetOutputChannel` | The output channel for the audio source. |
+| `AudioFilePath` | The path to the audio file to be played, relative to the project folder (e.g. `Assets/Sounds/file.wav`) or absolute. Changing it at runtime stops the source and loads the new file. |
+| `ResolvedAudioFilePath` | The full path of the audio file: relative paths are resolved from the project folder in the Editor, and from the player's folder in builds (Read Only). |
+| `TargetOutputChannel` | The output channel for the audio source (from 1 to the ASIO driver's output channel count, unique among sources). Can be changed while playing. |
 | `ReferencedAsioAudioManager` | The AsioAudioManager managing this audio source. |
-| `SourceWaveProvider` | The provider object containing the wave samples (Read Only). |
-| `Volume` | The playback volume (range: 0.0 to 1.0). |
+| `Volume` | The playback volume (range: 0.0 to 1.0), applied live. |
+| `Mute` | Silences this source (smoothly) without stopping it or changing its volume. |
+| `Solo` | When at least one source is soloed, only soloed sources are heard. |
+| `MeterLevel` | The output level of this source (peak, 0.0 to 1.0, after volume and mute), with a meter-like falloff (Read Only). |
 | `PlayOnEnable` | Whether playback starts automatically when the component is enabled. |
-| `Loop` | Whether the audio should loop when it reaches the end. |
+| `PreloadIntoMemory` | Decode the whole audio file into memory when it is loaded, instead of reading it from disk while playing. Avoids dropouts with many sources or slow disks, at the cost of memory (about 10 MB per minute of audio at 44.1 kHz) and a longer load. Can be switched while playing without interrupting playback. |
+| `Loop` | Whether the audio should loop (seamlessly) when it reaches the end. |
 | `AudioStatus` | The current playback status (`Stopped`, `Paused`, or `Playing`) (Read Only). |
 | `CurrentTimestamp` | The current playback position in seconds (Read Only). |
+| `AudioFileTotalLength` | The length of the audio file in seconds (Read Only). |
 
 #### Public Methods
 
@@ -70,9 +78,7 @@ public class PlayAsioSourceAndLoop : MonoBehaviour
 | `Pause` | Pauses playback of the audio file. |
 | `Stop` | Stops playback and resets the playback position. |
 | `Restart` | Restarts playback from the beginning. |
-| `SetSourceWaveProviderFromFileName` | Configures the SourceWaveProvider from the specified audio file path, with optional conversion and offset settings. |
-| `DestroySourceWaveProvider` | Destroy the SourceWaveProvider from the ASIO Audio Source. | 
-| `ConvertSamplesAndCreateNewAudioFile` | Converts audio samples to a target sample rate and bit depth, and writes them to a new file. |
+| `Seek` | Moves the playback position, in seconds. Works while playing, paused or stopped. |
 
 #### Unity Events
 
@@ -83,6 +89,6 @@ public class PlayAsioSourceAndLoop : MonoBehaviour
 | `OnVolumeChanged` | Triggered when the playback volume is updated. |
 | `OnPlay` | Triggered when playback starts. |
 | `OnPause` | Triggered when playback is paused. |
-| `OnStop` | Triggered when playback stops. |
+| `OnStop` | Triggered when playback stops (when `Stop` is called, or when a non-looping file reaches its end). |
 
 > **Note:** The ```Restart``` method doesn't trigger any events.
