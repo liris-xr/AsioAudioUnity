@@ -1,0 +1,6 @@
+<!-- Keeps NAudio whole when Unity strips code (IL2CPP, or "Managed Stripping Level" above Minimal):
+     the ASIO driver is reached through COM interop, and AsioAudioManager reads AsioOut's driver by reflection. -->
+<linker>
+    <assembly fullname="NAudio.Core" preserve="all"/>
+    <assembly fullname="NAudio.Asio" preserve="all"/>
+</linker>

@@ -15,6 +15,9 @@ namespace AsioAudioUnity
         private SerializedProperty _targetSampleRate;
         private SerializedProperty _targetBitsPerSample;
         private SerializedProperty _displayInfoOnGameWindow;
+        private SerializedProperty _overlayToggleKey;
+        private SerializedProperty _overlayScale;
+        private SerializedProperty _masterVolume;
 
         private AsioAudioManager Manager => (AsioAudioManager)target;
 
@@ -24,6 +27,9 @@ namespace AsioAudioUnity
             _targetSampleRate = serializedObject.FindProperty("_targetSampleRate");
             _targetBitsPerSample = serializedObject.FindProperty("_targetBitsPerSample");
             _displayInfoOnGameWindow = serializedObject.FindProperty("_displayInfoOnGameWindow");
+            _overlayToggleKey = serializedObject.FindProperty("_overlayToggleKey");
+            _overlayScale = serializedObject.FindProperty("_overlayScale");
+            _masterVolume = serializedObject.FindProperty("_masterVolume");
         }
 
         public override bool RequiresConstantRepaint() => EditorApplication.isPlaying;
@@ -32,7 +38,7 @@ namespace AsioAudioUnity
         {
             serializedObject.Update();
 
-            CustomAsioAudioSource[] allSources = AsioEditorUtility.FindAllSources();
+            AsioAudioSource[] allSources = AsioEditorUtility.FindAllSources();
             int outputChannelCount = AsioEditorUtility.GetKnownOutputChannelCount(Manager);
 
             DrawStatus(outputChannelCount);
@@ -41,16 +47,99 @@ namespace AsioAudioUnity
             EditorGUILayout.LabelField("ASIO Driver", EditorStyles.boldLabel);
             DrawDriverPopup();
             DrawSampleRatePopup();
-            EditorGUILayout.IntPopup(_targetBitsPerSample, BitsPerSampleLabels, BitsPerSampleValues, new GUIContent("Sample Format", "The sample format sent to the ASIO driver."));
+            EditorGUILayout.IntPopup(_targetBitsPerSample, BitsPerSampleLabels, BitsPerSampleValues, new GUIContent("Sample Format", "The sample format the mix is handed to NAudio in. NAudio converts it to the driver's own format."));
+            DrawDriverSampleFormat();
             if (EditorApplication.isPlaying) EditorGUILayout.LabelField("Changing these settings reconnects the driver.", EditorStyles.centeredGreyMiniLabel);
 
             EditorGUILayout.Space(6f);
-            EditorGUILayout.PropertyField(_displayInfoOnGameWindow, new GUIContent("Game Window Overlay", "Display the ASIO status and source controls in the Game window."));
+            EditorGUILayout.LabelField("Master", EditorStyles.boldLabel);
+            float masterMeter = EditorApplication.isPlaying && Manager.IsConnected ? Manager.MasterMeterLevel : -1f;
+            EditorGUI.BeginChangeCheck();
+            float masterVolume = AsioVolumeFader.SliderRow(new GUIContent("Master Volume", "Volume applied to all sources, after their own volume (like the master fader of a mixing desk). The meter shows the level sent to the ASIO driver."),
+                _masterVolume.floatValue, masterMeter, _masterVolume.hasMultipleDifferentValues);
+            if (EditorGUI.EndChangeCheck()) _masterVolume.floatValue = masterVolume;
+
+            EditorGUILayout.Space(6f);
+            DrawSnapshots();
+
+            EditorGUILayout.Space(6f);
+            EditorGUILayout.LabelField("In-game Overlay", EditorStyles.boldLabel);
+            EditorGUILayout.PropertyField(_displayInfoOnGameWindow, new GUIContent("Show", "Display the ASIO status, driver settings and source controls in the Game window (also in builds)."));
+            EditorGUILayout.PropertyField(_overlayToggleKey, new GUIContent("Toggle Key", "Key that shows or hides the overlay at runtime (None: no key)."));
+            EditorGUILayout.PropertyField(_overlayScale, new GUIContent("Scale", "Size of the overlay, e.g. 2 on a 4K screen."));
 
             EditorGUILayout.Space(6f);
             DrawChannelMap(allSources, outputChannelCount);
 
             serializedObject.ApplyModifiedProperties();
+        }
+
+        // The driver's own sample format (set by the driver, not by Unity), remembered from the last connection so it is visible before Play mode.
+        private void DrawDriverSampleFormat()
+        {
+            string driverFormat = AsioEditorUtility.GetKnownDriverSampleFormat(Manager);
+            bool live = Manager.IsConnected && !string.IsNullOrEmpty(Manager.AsioDriverSampleFormat);
+
+            string text = string.IsNullOrEmpty(driverFormat)
+                ? "Unknown until entering Play mode once"
+                : driverFormat + (live ? "" : "  (last seen in Play mode)");
+            EditorGUILayout.LabelField(new GUIContent("Driver Format", "The sample format the ASIO driver works with. It is set by the driver (some drivers have an option in their control panel), not by Unity."), new GUIContent(text));
+
+            // 16-bit integers can only be converted to 16-bit and 32-bit integer drivers (the manager falls back to 32-bit float otherwise).
+            if (_targetBitsPerSample.intValue == (int)BitsPerSample.Bits16 && !string.IsNullOrEmpty(driverFormat)
+                && driverFormat != "16-bit integer" && driverFormat != "32-bit integer")
+            {
+                EditorGUILayout.HelpBox("This driver works with " + driverFormat + " samples, which can't be fed with 16-bit integers: 32-bit float will be sent instead.", MessageType.Info);
+            }
+        }
+
+        // Saved mixes: name (editable), Recall, Update (save the current mix into it) and Delete.
+        private void DrawSnapshots()
+        {
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.LabelField(new GUIContent("Snapshots", "Saved mixes: the master volume, and the volume, mute and solo of every source. Recall them here, from the ASIO Mixer, from code (RecallSnapshot) or over OSC."), EditorStyles.boldLabel);
+            GUILayout.FlexibleSpace();
+            if (GUILayout.Button(new GUIContent("Save Current Mix", "Save the current mix as a new snapshot."), EditorStyles.miniButton, GUILayout.Width(110f)))
+            {
+                serializedObject.ApplyModifiedProperties();
+                AsioEditorUtility.SaveSnapshot(Manager, AsioEditorUtility.NextSnapshotName(Manager));
+                serializedObject.Update();
+            }
+            EditorGUILayout.EndHorizontal();
+
+            SerializedProperty snapshots = serializedObject.FindProperty("_snapshots");
+            if (snapshots.arraySize == 0)
+            {
+                EditorGUILayout.LabelField("No snapshot yet.", EditorStyles.centeredGreyMiniLabel);
+                return;
+            }
+
+            for (int i = 0; i < snapshots.arraySize; i++)
+            {
+                SerializedProperty snapshot = snapshots.GetArrayElementAtIndex(i);
+                SerializedProperty snapshotName = snapshot.FindPropertyRelative("Name");
+                int sourceCount = snapshot.FindPropertyRelative("Sources").arraySize;
+
+                EditorGUILayout.BeginHorizontal();
+                EditorGUILayout.PropertyField(snapshotName, GUIContent.none);
+                GUILayout.Label(sourceCount + (sourceCount == 1 ? " source" : " sources"), EditorStyles.miniLabel, GUILayout.Width(62f));
+
+                int index = i;
+                bool recall = GUILayout.Button(new GUIContent("Recall", "Apply this snapshot"), EditorStyles.miniButtonLeft, GUILayout.Width(52f));
+                bool update = GUILayout.Button(new GUIContent("Update", "Save the current mix into this snapshot"), EditorStyles.miniButtonMid, GUILayout.Width(52f));
+                bool delete = GUILayout.Button(new GUIContent("×", "Delete this snapshot"), EditorStyles.miniButtonRight, GUILayout.Width(22f));
+                EditorGUILayout.EndHorizontal();
+
+                if (recall || update || delete)
+                {
+                    serializedObject.ApplyModifiedProperties();
+                    if (recall) AsioEditorUtility.RecallSnapshot(Manager, index);
+                    if (update) AsioEditorUtility.SaveSnapshot(Manager, Manager.Snapshots[index].Name);
+                    if (delete) AsioEditorUtility.DeleteSnapshot(Manager, index);
+                    serializedObject.Update();
+                    GUIUtility.ExitGUI(); // The list changed
+                }
+            }
         }
 
         private void DrawStatus(int outputChannelCount)
@@ -155,7 +244,7 @@ namespace AsioAudioUnity
             EditorGUILayout.IntPopup(_targetSampleRate, labels, rates, new GUIContent("Sample Rate", "The sample rate the ASIO driver runs at. It must be supported by the driver. Audio files are resampled to it."));
         }
 
-        private void DrawChannelMap(CustomAsioAudioSource[] allSources, int outputChannelCount)
+        private void DrawChannelMap(AsioAudioSource[] allSources, int outputChannelCount)
         {
             EditorGUILayout.BeginHorizontal();
             EditorGUILayout.LabelField("Output Channels", EditorStyles.boldLabel);
@@ -165,12 +254,12 @@ namespace AsioAudioUnity
 
             if (allSources.Length == 0)
             {
-                EditorGUILayout.HelpBox("There is no Custom ASIO Audio Source in the scene.", MessageType.Info);
+                EditorGUILayout.HelpBox("There is no ASIO Audio Source in the scene.", MessageType.Info);
                 return;
             }
 
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-            foreach (CustomAsioAudioSource source in allSources)
+            foreach (AsioAudioSource source in allSources)
             {
                 AsioEditorUtility.ChannelIssue issue = AsioEditorUtility.GetChannelIssue(source, allSources, outputChannelCount);
                 bool fileMissing = string.IsNullOrEmpty(source.AudioFilePath) || !File.Exists(source.ResolvedAudioFilePath);

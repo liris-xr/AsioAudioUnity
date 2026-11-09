@@ -43,4 +43,10 @@ public class SetupRoomOsc : MonoBehaviour
 |-|-|
 | `OscObject` | Returns the OSC object identifier, always `"room"` (Read Only). |
 | `Index` | The unique index of the room for OSC addressing. |
+| `Osc` | The OSC Manager used to send messages (found in the scene if empty). |
+| `MaxSendRate` | Maximum number of position messages per second (default: 60; 0 for no limit). |
+| `KeepAliveInterval` | The position is re-sent every this many seconds even if the object doesn't move, so a receiver that restarts gets it back (default: 1; 0 to only send on movement). |
+| `MovementThreshold` | Smallest movement, in Unity units, that triggers sending the position (default: 0.001). |
+
+> **Note:** The position is only sent when the object moves (and when it is enabled), instead of every frame.
 

@@ -15,7 +15,8 @@ namespace AsioAudioUnity
     internal static class AsioEditorUtility
     {
         public static readonly int[] CommonSampleRates = { 44100, 48000, 88200, 96000, 176400, 192000 };
-        public static readonly string[] AudioExtensions = { ".wav", ".mp3", ".ogg", ".aiff", ".aif", ".flac" };
+        // What NAudio can read on Windows (.mp3 and .flac through Windows' own decoders). Not .ogg: NAudio has no Ogg Vorbis decoder.
+        public static readonly string[] AudioExtensions = { ".wav", ".mp3", ".aiff", ".aif", ".flac" };
 
         public static readonly Color PlayingColor = new Color(0.35f, 0.80f, 0.45f);
         public static readonly Color PausedColor = new Color(0.95f, 0.75f, 0.25f);
@@ -29,10 +30,10 @@ namespace AsioAudioUnity
             return Object.FindFirstObjectByType<AsioAudioManager>(FindObjectsInactive.Include);
         }
 
-        /// <summary>All Custom ASIO Audio Sources in the open scenes (including inactive ones), sorted by output channel.</summary>
-        public static CustomAsioAudioSource[] FindAllSources()
+        /// <summary>All ASIO Audio Sources in the open scenes (including inactive ones), sorted by output channel.</summary>
+        public static AsioAudioSource[] FindAllSources()
         {
-            return Object.FindObjectsByType<CustomAsioAudioSource>(FindObjectsInactive.Include, FindObjectsSortMode.None)
+            return Object.FindObjectsByType<AsioAudioSource>(FindObjectsInactive.Include, FindObjectsSortMode.None)
                 .OrderBy(source => source.TargetOutputChannel <= 0 ? int.MaxValue : source.TargetOutputChannel)
                 .ThenBy(source => source.name)
                 .ToArray();
@@ -46,6 +47,37 @@ namespace AsioAudioUnity
             Undo.RecordObject(target, undoName);
             change();
             PrefabUtility.RecordPrefabInstancePropertyModifications(target);
+        }
+
+        // ---------- Mixer snapshots (with Undo) ----------
+
+        public static string NextSnapshotName(AsioAudioManager manager)
+        {
+            int number = manager.Snapshots.Count + 1;
+            while (manager.Snapshots.Any(snapshot => snapshot.Name == "Snapshot " + number)) number++;
+            return "Snapshot " + number;
+        }
+
+        public static void SaveSnapshot(AsioAudioManager manager, string snapshotName)
+        {
+            RecordChange(manager, "Save Mixer Snapshot", () => manager.SaveSnapshot(snapshotName));
+        }
+
+        public static void RecallSnapshot(AsioAudioManager manager, int index)
+        {
+            if (index < 0 || index >= manager.Snapshots.Count) return;
+
+            List<Object> changed = new List<Object> { manager };
+            changed.AddRange(manager.Snapshots[index].Sources.Where(settings => settings.Source != null).Select(settings => (Object)settings.Source));
+            Undo.RecordObjects(changed.ToArray(), "Recall Mixer Snapshot");
+            manager.RecallSnapshot(index);
+            foreach (Object target in changed) PrefabUtility.RecordPrefabInstancePropertyModifications(target);
+        }
+
+        public static void DeleteSnapshot(AsioAudioManager manager, int index)
+        {
+            if (index < 0 || index >= manager.Snapshots.Count) return;
+            RecordChange(manager, "Delete Mixer Snapshot", () => manager.Snapshots.RemoveAt(index));
         }
 
         // ---------- ASIO driver ----------
@@ -79,11 +111,39 @@ namespace AsioAudioUnity
             return EditorPrefs.GetInt(key, 0);
         }
 
+        /// <summary>
+        /// Sample format of the manager's driver (e.g. "24-bit integer"): the live value when connected, otherwise the last value seen for this driver (empty if never seen).
+        /// </summary>
+        public static string GetKnownDriverSampleFormat(AsioAudioManager manager)
+        {
+            if (manager == null || string.IsNullOrEmpty(manager.AsioDriverName)) return "";
+
+            string key = "AsioAudioUnity.DriverSampleFormat." + manager.AsioDriverName;
+            if (manager.IsConnected && !string.IsNullOrEmpty(manager.AsioDriverSampleFormat))
+            {
+                if (EditorPrefs.GetString(key, "") != manager.AsioDriverSampleFormat) EditorPrefs.SetString(key, manager.AsioDriverSampleFormat);
+                return manager.AsioDriverSampleFormat;
+            }
+            return EditorPrefs.GetString(key, "");
+        }
+
+        /// <summary>
+        /// The driver's name of an output channel (1-based, e.g. "ReaRoute 3"): the live value when connected, otherwise the last value seen for this driver (empty if unknown).
+        /// </summary>
+        public static string GetKnownOutputChannelName(AsioAudioManager manager, int channel)
+        {
+            if (manager == null || string.IsNullOrEmpty(manager.AsioDriverName) || channel < 1) return "";
+            if (manager.IsConnected) return manager.GetOutputChannelName(channel);
+
+            string[] names = EditorPrefs.GetString("AsioAudioUnity.OutputChannelNames." + manager.AsioDriverName, "").Split('\n');
+            return channel <= names.Length ? names[channel - 1] : "";
+        }
+
         // ---------- Output channels ----------
 
         public enum ChannelIssue { None, NotSet, OutOfRange, Duplicate }
 
-        public static ChannelIssue GetChannelIssue(CustomAsioAudioSource source, IList<CustomAsioAudioSource> allSources, int outputChannelCount)
+        public static ChannelIssue GetChannelIssue(AsioAudioSource source, IList<AsioAudioSource> allSources, int outputChannelCount)
         {
             int channel = source.TargetOutputChannel;
             if (channel <= 0) return ChannelIssue.NotSet;
@@ -92,7 +152,7 @@ namespace AsioAudioUnity
             return ChannelIssue.None;
         }
 
-        public static string DescribeChannelIssue(ChannelIssue issue, CustomAsioAudioSource source, IList<CustomAsioAudioSource> allSources, int outputChannelCount)
+        public static string DescribeChannelIssue(ChannelIssue issue, AsioAudioSource source, IList<AsioAudioSource> allSources, int outputChannelCount)
         {
             switch (issue)
             {
@@ -111,20 +171,23 @@ namespace AsioAudioUnity
         /// <summary>
         /// Builds the options of an output channel popup: "None", then each channel, labelled with the source already using it (other than the edited ones).
         /// </summary>
-        public static void BuildChannelOptions(int currentChannel, int outputChannelCount, IList<CustomAsioAudioSource> allSources, ICollection<CustomAsioAudioSource> editedSources, out GUIContent[] labels, out int[] values)
+        public static void BuildChannelOptions(int currentChannel, int outputChannelCount, IList<AsioAudioSource> allSources, ICollection<AsioAudioSource> editedSources, out GUIContent[] labels, out int[] values)
         {
             int highestUsedChannel = allSources.Count == 0 ? 0 : allSources.Max(source => source.TargetOutputChannel);
             int channelCount = outputChannelCount > 0 ? outputChannelCount : Mathf.Max(16, highestUsedChannel + 1);
 
             List<GUIContent> labelList = new List<GUIContent> { new GUIContent("None") };
             List<int> valueList = new List<int> { 0 };
+            AsioAudioManager manager = FindManager();
 
             for (int channel = 1; channel <= Mathf.Max(channelCount, currentChannel); channel++)
             {
                 string label = channel.ToString();
+                string channelName = GetKnownOutputChannelName(manager, channel);
+                if (!string.IsNullOrEmpty(channelName)) label += "  " + channelName.Replace("/", "∕");
                 if (channel > channelCount) label += "  (doesn't exist on driver)";
 
-                CustomAsioAudioSource user = allSources.FirstOrDefault(source => source.TargetOutputChannel == channel && !editedSources.Contains(source));
+                AsioAudioSource user = allSources.FirstOrDefault(source => source.TargetOutputChannel == channel && !editedSources.Contains(source));
                 if (user != null) label += "  (used by " + user.name.Replace("/", "∕") + ")"; // A '/' would create a submenu
 
                 labelList.Add(new GUIContent(label));
@@ -136,12 +199,12 @@ namespace AsioAudioUnity
         }
 
         /// <summary>Gives each source the lowest output channel not used by any other source.</summary>
-        public static void AutoAssignChannels(IList<CustomAsioAudioSource> sourcesToAssign, IList<CustomAsioAudioSource> allSources)
+        public static void AutoAssignChannels(IList<AsioAudioSource> sourcesToAssign, IList<AsioAudioSource> allSources)
         {
             HashSet<int> usedChannels = new HashSet<int>(allSources.Where(source => !sourcesToAssign.Contains(source)).Select(source => source.TargetOutputChannel));
             int nextChannel = 1;
 
-            foreach (CustomAsioAudioSource source in sourcesToAssign)
+            foreach (AsioAudioSource source in sourcesToAssign)
             {
                 while (usedChannels.Contains(nextChannel)) nextChannel++;
                 int channel = nextChannel;
@@ -198,7 +261,7 @@ namespace AsioAudioUnity
             if (info == null) return null;
             string channels = info.Channels == 1 ? "Mono" : info.Channels == 2 ? "Stereo" : info.Channels + " channels";
             string bits = info.BitsPerSample > 0 ? "  ·  " + info.BitsPerSample + "-bit" : "";
-            return FormatTime(info.LengthSeconds) + "  ·  " + (info.SampleRate / 1000f).ToString("0.#") + " kHz" + bits + "  ·  " + channels;
+            return FormatTime(info.LengthSeconds) + "  ·  " + (info.SampleRate / 1000f).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) + " kHz" + bits + "  ·  " + channels;
         }
 
         public static bool IsAudioFile(string path)

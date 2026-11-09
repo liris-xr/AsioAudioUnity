@@ -21,6 +21,9 @@ using System.Threading;
 using System.Text;
 using UnityEngine;
 
+namespace AsioAudioUnity
+{
+
 
 /// \mainpage
 /// \section Overview
@@ -40,14 +43,14 @@ using UnityEngine;
 /// 
 /// \subsection OSCmessages OSC Messages
 /// OSC messages are represented by the class OscMessage, and consist of two elements:
-/// - An address string for the device on the board youíre dealing with.
+/// - An address string for the device on the board youÃ­re dealing with.
 /// - A list of value(s) being sent to or from that device. The list of values is optional.
 /// 
 /// From the perspective of OSC addresses, the Make Controller Kit is organized into a hierarchy of two or three layers:
-/// - subsystems ñ classes of device, such as analog inputs, servo controllers, and digital outputs.
-/// - devices ñ the index of a specific device within a subsystem.  
+/// - subsystems Ã± classes of device, such as analog inputs, servo controllers, and digital outputs.
+/// - devices Ã± the index of a specific device within a subsystem.  
 /// If there is only one device in a subsystem, the device is not included in the OSC address.
-/// - properties ñ different devices have different properties, such as the value of an analog input, 
+/// - properties Ã± different devices have different properties, such as the value of an analog input, 
 /// the position of a servo motor, or the state of an LED. 
 /// 
 /// OSC messages always begin with a slash, and use a slash to delimit each element in the address, 
@@ -72,8 +75,8 @@ using UnityEngine;
 /// \section sendingdata Sending Data
 /// As previously mentioned, the Make Controller Kit can communicate over both 
 /// Ethernet and USB.  Messages are sent as packets, both over USB and UDP, and 
-/// corresponding structures are used ñ UsbPacket and UdpPacket.  Once youíve created 
-/// a packet, you can simply call its Send() method, with the OscMessage youíd like to send.  
+/// corresponding structures are used Ã± UsbPacket and UdpPacket.  Once youÃ­ve created 
+/// a packet, you can simply call its Send() method, with the OscMessage youÃ­d like to send.  
 /// There are helper methods to create an OscMessage from a string, or you can pass in the OscMessage itself. 
 /// 
 /// For example, you might set up your UsbSend() routine to look something like:
@@ -87,7 +90,7 @@ using UnityEngine;
 /// 
 /// \section readingdata Reading Data
 /// The Make Controller Kit must be polled in order to read data from it.  To do this, 
-/// send an OscMessage with the address of the device youíd like to read, but omit 
+/// send an OscMessage with the address of the device youÃ­d like to read, but omit 
 /// the list of values.  When the board receives an OscMessage with no value, 
 /// it interprets that as a read request, and sends back an OscMessage with the 
 /// current value at the appropriate address.
@@ -157,45 +160,65 @@ public class UDPPacketIO
 	/// <returns>True on success, false on failure.</returns>
 	public bool Open()
 	{
+		if (closedByOwner) return false;
+		openAttempted = true;
+
 		try
 		{
 			Sender = new UdpClient();
-			Debug.Log("Opening OSC listener on port " + localPort);
-			
-			IPEndPoint listenerIp = new IPEndPoint(IPAddress.Any, localPort);
-			Receiver = new UdpClient(listenerIp);
-			
-			
 			socketsOpen = true;
-			
-			return true;
 		}
 		catch (Exception e)
 		{
-			Debug.LogWarning("cannot open udp client interface at port "+localPort);
-			Debug.LogWarning(e);
+			Debug.LogWarning("OSC: cannot open the UDP sender: " + e.Message);
+			return false;
 		}
-		
-		return false;
+
+		// The listener is opened separately: if its port is already in use, sending still works.
+		try
+		{
+			Receiver = new UdpClient(new IPEndPoint(IPAddress.Any, localPort));
+		}
+		catch (Exception e)
+		{
+			Receiver = null;
+			Debug.LogWarning("OSC: cannot listen on port " + localPort + " (incoming OSC messages will be ignored): " + e.Message);
+		}
+
+		return true;
 	}
-	
+
 	/// <summary>
 	/// Close the socket currently listening, and destroy the UDP sender device.
+	/// Once closed, the sockets are never reopened (this also unblocks a thread waiting in ReceivePacket).
 	/// </summary>
 	public void Close()
-	{    
+	{
+		closedByOwner = true;
+
 		if(Sender != null)
 			Sender.Close();
-		
+
 		if (Receiver != null)
 		{
 			Receiver.Close();
-			// Debug.Log("UDP receiver closed");
 		}
+		Sender = null;
 		Receiver = null;
 		socketsOpen = false;
-		
+
 	}
+
+	/// <summary>
+	/// True if incoming messages can be received (the listener port could be opened).
+	/// </summary>
+	public bool CanReceive
+	{
+		get { return Receiver != null; }
+	}
+
+	private bool closedByOwner;
+	private bool openAttempted;
 	
 	public void OnDisable()
 	{
@@ -219,13 +242,21 @@ public class UDPPacketIO
 	/// <param name="packet">The packet of bytes to be sent.</param>
 	/// <param name="length">The length of the packet of bytes to be sent.</param>
 	public void SendPacket(byte[] packet, int length)
-	{   
-		if (!IsOpen())
+	{
+		// Open on first use only: retrying on every send would log a warning per message.
+		if (!IsOpen() && !openAttempted)
 			Open();
 		if (!IsOpen())
 			return;
-		
-		Sender.Send(packet, length, remoteHostName, remotePort);
+
+		try
+		{
+			Sender.Send(packet, length, remoteHostName, remotePort);
+		}
+		catch (Exception e)
+		{
+			Debug.LogWarning("OSC: cannot send to " + remoteHostName + ":" + remotePort + ": " + e.Message);
+		}
 		//Debug.Log("osc message sent to "+remoteHostName+" port "+remotePort+" len="+length);
 	}
 	
@@ -236,14 +267,16 @@ public class UDPPacketIO
 	/// <returns>The number of bytes read, or 0 on failure.</returns>
 	public int ReceivePacket(byte[] buffer)
 	{
-		if (!IsOpen())
+		if (!IsOpen() && !openAttempted)
 			Open();
-		if (!IsOpen())
+
+		UdpClient receiver = Receiver;
+		if (receiver == null)
 			return 0;
-		
-		
+
+		// Blocks until a packet arrives, or throws when the socket is closed (see Close).
 		IPEndPoint iep = new IPEndPoint(IPAddress.Any, localPort);
-		byte[] incoming = Receiver.Receive( ref iep );
+		byte[] incoming = receiver.Receive( ref iep );
 		int count = Math.Min(buffer.Length, incoming.Length);
 		System.Array.Copy(incoming, buffer, count);
 		return count;
@@ -398,8 +431,15 @@ public class UDPPacketIO
 
       private UDPPacketIO OscPacketIO;
       Thread ReadThread;
-	  private bool ReaderRunning;
+	  private volatile bool ReaderRunning;
+	  private readonly byte[] sendBuffer = new byte[1000];
       private OscMessageHandler AllMessageHandler;
+
+      /// <summary>
+      /// Called (on the main thread) for every message received, like the handler set with SetAllMessageHandler,
+      /// but several components can listen at the same time.
+      /// </summary>
+      public event OscMessageHandler MessageReceived;
 
       Hashtable AddressTable;
 
@@ -438,25 +478,34 @@ public class UDPPacketIO
 
 		buffer = new byte[1000];
 
+		OscPacketIO.Open();
 
-		ReadThread = new Thread(Read);
-		ReaderRunning = true;
-		ReadThread.IsBackground = true;      
-		ReadThread.Start();
+		// Only listen if the input port could be opened.
+		if (OscPacketIO.CanReceive)
+		{
+			ReadThread = new Thread(Read);
+			ReaderRunning = true;
+			ReadThread.IsBackground = true;
+			ReadThread.Name = "OSC Receiver";
+			ReadThread.Start();
+		}
 
 #if UNITY_EDITOR
-        //UnityEditor.EditorApplication.playmodeStateChanged = HandleOnPlayModeChanged;
         UnityEditor.EditorApplication.playModeStateChanged += HandleOnPlayModeChanged;  //FIX FOR UNITY POST 2017
 #endif
 
     }
 
-    void OnDestroy() 
+    void OnDestroy()
     {
-        ObjectPositionOsc[] objectPositionsOsc = FindObjectsByType<ObjectPositionOsc>(FindObjectsSortMode.InstanceID);
+#if UNITY_EDITOR
+        UnityEditor.EditorApplication.playModeStateChanged -= HandleOnPlayModeChanged;
+#endif
+
+        ObjectPositionOsc[] objectPositionsOsc = FindObjectsByType<ObjectPositionOsc>(FindObjectsSortMode.None);
         foreach (ObjectPositionOsc objectPositionOsc in objectPositionsOsc)
         {
-            objectPositionOsc.SendResetPositionOsc();
+            if (objectPositionOsc.Osc == this) objectPositionOsc.SendResetPositionOsc();
         }
         Close();
 	}
@@ -508,6 +557,8 @@ public class UDPPacketIO
 					if (AllMessageHandler != null)
 						AllMessageHandler(om);
 
+					MessageReceived?.Invoke(om);
+
 					ArrayList al = (ArrayList)Hashtable.Synchronized(AddressTable)[om.address];
 					if ( al != null) {
 						foreach (OscMessageHandler h in al) {
@@ -540,23 +591,21 @@ public class UDPPacketIO
     */
     public void Close()
     {
-        //Debug.Log("Osc Cancel start");
+        // Thread.Abort is not supported on recent .NET runtimes: instead, ask the thread to stop,
+        // then close the socket, which makes the blocking Receive call throw and the thread exit.
+        ReaderRunning = false;
 
-
-        if (ReaderRunning)
-        {
-            ReaderRunning = false;
-            ReadThread.Abort();
-
-        }
-        
-        if (OscPacketIO != null && OscPacketIO.IsOpen())
+        if (OscPacketIO != null)
         {
             OscPacketIO.Close();
             OscPacketIO = null;
-			print("Closed OSC listener");
         }
-       
+
+        if (ReadThread != null)
+        {
+            if (!ReadThread.Join(500)) Debug.LogWarning("OSC: the receiver thread did not stop in time.");
+            ReadThread = null;
+        }
     }
 
 
@@ -567,13 +616,14 @@ public class UDPPacketIO
 	/// </summary>
 	private void Read()
 	{
-		try
+		while (ReaderRunning)
 		{
-			while (ReaderRunning)
+			try
 			{
+				UDPPacketIO packetIO = OscPacketIO;
+				if (packetIO == null || !packetIO.CanReceive) break;
 
-
-				int length = OscPacketIO.ReceivePacket(buffer);
+				int length = packetIO.ReceivePacket(buffer);
 
 				if (length > 0)
 				{
@@ -585,21 +635,18 @@ public class UDPPacketIO
 						}
 
 					}
-
-
 				}
 				else
 					Thread.Sleep(5);
 			}
-		}
-		
-		catch (Exception e)
-		{
-			Debug.Log("ThreadAbortException"+e);
-		}
-		finally
-		{
+			catch (Exception e)
+			{
+				// Closing the socket (see Close) interrupts Receive with an exception: that's the normal way out.
+				if (!ReaderRunning) break;
 
+				// Anything else (e.g. a malformed packet): log it and keep listening.
+				Debug.LogWarning("OSC: error while receiving: " + e.Message);
+			}
 		}
 		
 	}
@@ -614,9 +661,9 @@ public class UDPPacketIO
     /// <param name="oscMessage">The OSC Message to send.</param>   
     public void Send( OscMessage oscMessage )
     {
-      byte[] packet = new byte[1000];
-      int length = OSC.OscMessageToPacket( oscMessage, packet, 1000 );
-      OscPacketIO.SendPacket( packet, length);
+      if (OscPacketIO == null) return; // Closed
+      int length = OSC.OscMessageToPacket( oscMessage, sendBuffer, sendBuffer.Length );
+      OscPacketIO.SendPacket( sendBuffer, length);
     }
 
     /// <summary>
@@ -626,9 +673,9 @@ public class UDPPacketIO
     /// <param name="oms">The OSC Message to send.</param>   
     public void Send(ArrayList oms)
     {
-      byte[] packet = new byte[1000];
-		int length = OSC.OscMessagesToPacket(oms, packet, 1000);
-      OscPacketIO.SendPacket(packet, length);
+      if (OscPacketIO == null) return; // Closed
+      int length = OSC.OscMessagesToPacket(oms, sendBuffer, sendBuffer.Length);
+      OscPacketIO.SendPacket(sendBuffer, length);
     }
 
     /// <summary>
@@ -1008,3 +1055,4 @@ public class UDPPacketIO
     }
   }
 //}
+}

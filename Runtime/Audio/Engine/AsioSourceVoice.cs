@@ -6,7 +6,7 @@ using NAudio.Wave.SampleProviders;
 namespace AsioAudioUnity
 {
     /// <summary>
-    /// The real-time playback state of one Custom ASIO Audio Source: an audio file, read as mono samples at the output sample rate,
+    /// The real-time playback state of one ASIO Audio Source: an audio file, read as mono samples at the output sample rate,
     /// with its transport state (playing / paused / stopped), position, volume, mute, loop and output channel.
     ///
     /// Play, pause, stop and mute fade in or out over a few milliseconds, and volume changes are ramped, to avoid clicks.
@@ -20,7 +20,10 @@ namespace AsioAudioUnity
         private const int StatePlaying = 1;
         private const int StatePaused = 2;
 
-        private const double FadeDurationSeconds = 0.005;
+        private const int NoPendingState = -1;
+
+        // Shortest fade, used when no fade duration is set: just enough to avoid clicks.
+        private const float MinFadeSeconds = 0.005f;
 
         private readonly object _sync = new object();
 
@@ -33,6 +36,9 @@ namespace AsioAudioUnity
         private WaveFormat _decodedFileWaveFormat;
 
         private volatile int _state = StateStopped;
+        private int _pendingState = NoPendingState; // A deferred transport change, applied by the mixer at the start of a buffer (Interlocked)
+        private volatile float _fadeInSeconds;
+        private volatile float _fadeOutSeconds;
         private volatile int _outputSampleRate = 48000;
         private volatile float _volume = 1f;
         private volatile bool _muted;
@@ -41,6 +47,7 @@ namespace AsioAudioUnity
         private long _framesPlayed; // At output sample rate, accessed through Interlocked
         private int _endReached; // Set to 1 by the audio thread when playback reaches the end without looping
         private int _rewindPending; // Set to 1 by Stop: the audio thread rewinds once the fade-out is done
+        private int _pendingRewind; // Set to 1 by a deferred Restart: rewound together with the deferred state change
         private float _peak; // Highest absolute output sample since last read by the main thread (for level meters)
 
         // Lock-free (these are polled every frame: taking the lock could make the audio thread skip a buffer).
@@ -52,6 +59,11 @@ namespace AsioAudioUnity
         public bool Muted { get => _muted; set => _muted = value; }
         public bool Loop { get => _loop; set => _loop = value; }
         public int OutputChannel { get => _outputChannel; set => _outputChannel = value; }
+
+        /// <summary>Fade-in duration of Play (and resuming), in seconds. 0: a few milliseconds, just enough to avoid clicks.</summary>
+        public float FadeInSeconds { get => _fadeInSeconds; set => _fadeInSeconds = Math.Max(0f, value); }
+        /// <summary>Fade-out duration of Pause and Stop, in seconds. 0: a few milliseconds, just enough to avoid clicks.</summary>
+        public float FadeOutSeconds { get => _fadeOutSeconds; set => _fadeOutSeconds = Math.Max(0f, value); }
 
         /// <summary>The format the file is decoded to (always 32-bit float, at the file's sample rate and channel count).</summary>
         public WaveFormat DecodedWaveFormat { get { lock (_sync) return _decodedFileWaveFormat; } }
@@ -127,32 +139,90 @@ namespace AsioAudioUnity
                 _decodedFileWaveFormat = null;
                 _state = StateStopped;
                 _transportGain = 0f;
+                Interlocked.Exchange(ref _pendingState, NoPendingState);
+                Interlocked.Exchange(ref _pendingRewind, 0);
                 Interlocked.Exchange(ref _rewindPending, 0);
                 Interlocked.Exchange(ref _framesPlayed, 0);
             }
             oldSource?.Dispose();
         }
 
-        public void Play()
+        // Deferred changes (deferred = true) are applied by the mixer at the start of the next buffer, together with
+        // the deferred changes of other voices: voices played, paused or stopped together change state on the same sample.
+
+        public void Play(bool deferred = false)
         {
             // A Stop whose fade-out was never rendered (driver not running): rewind now.
             if (Interlocked.Exchange(ref _rewindPending, 0) == 1) RewindLocked(true);
 
             Interlocked.Exchange(ref _endReached, 0);
-            _state = StatePlaying;
+            SetState(StatePlaying, deferred);
         }
 
-        public void Pause()
+        public void Pause(bool deferred = false)
         {
-            _state = StatePaused;
+            SetState(StatePaused, deferred);
         }
 
         /// <summary>Stops playback (fading out) and goes back to the start of the file.</summary>
-        public void Stop()
+        public void Stop(bool deferred = false)
         {
             // Rewinding is left to the audio thread, after the fade-out: rewinding now would make the fade-out play the start of the file.
             Interlocked.Exchange(ref _rewindPending, 1);
-            _state = StateStopped;
+            SetState(StateStopped, deferred);
+        }
+
+        private void SetState(int state, bool deferred)
+        {
+            if (deferred)
+            {
+                Interlocked.Exchange(ref _pendingState, state);
+            }
+            else
+            {
+                Interlocked.Exchange(ref _pendingState, NoPendingState);
+                _state = state;
+            }
+        }
+
+        /// <summary>Plays from the start of the file.</summary>
+        public void Restart(bool deferred = false)
+        {
+            if (!deferred)
+            {
+                Seek(0);
+                Play();
+                return;
+            }
+
+            Interlocked.Exchange(ref _rewindPending, 0);
+            Interlocked.Exchange(ref _endReached, 0);
+            Interlocked.Exchange(ref _pendingRewind, 1);
+            SetState(StatePlaying, true);
+        }
+
+        /// <summary>
+        /// [Audio thread, or main thread when no mixer runs] Applies the deferred transport change and rewind, if any.
+        /// Never blocks: if the main thread is loading or seeking, the change is kept for the next call, and false is returned.
+        /// </summary>
+        public bool ApplyPendingState()
+        {
+            if (Volatile.Read(ref _pendingRewind) == 1)
+            {
+                if (!Monitor.TryEnter(_sync)) return false;
+                try
+                {
+                    if (Interlocked.Exchange(ref _pendingRewind, 0) == 1) RewindLocked(false);
+                }
+                finally
+                {
+                    Monitor.Exit(_sync);
+                }
+            }
+
+            int pendingState = Interlocked.Exchange(ref _pendingState, NoPendingState);
+            if (pendingState != NoPendingState) _state = pendingState;
+            return true;
         }
 
         /// <summary>Moves the playback position, in seconds (clamped to the file's length).</summary>
@@ -204,11 +274,12 @@ namespace AsioAudioUnity
             {
                 if (_monoOutput == null) return;
 
-                int fadeFrames = Math.Max(1, (int)(_outputSampleRate * FadeDurationSeconds));
-                float gainStep = 1f / fadeFrames;
+                // Fade-in (play, resume) and fade-out (pause, stop) steps, per frame
+                float fadeInStep = 1f / Math.Max(1f, _outputSampleRate * Math.Max(MinFadeSeconds, _fadeInSeconds));
+                float fadeOutStep = 1f / Math.Max(1f, _outputSampleRate * Math.Max(MinFadeSeconds, _fadeOutSeconds));
 
                 // When fading out, only render what the fade needs.
-                int framesToRender = shouldPlay ? frames : Math.Min(frames, (int)Math.Ceiling(_transportGain / gainStep));
+                int framesToRender = shouldPlay ? frames : Math.Min(frames, (int)Math.Ceiling(_transportGain / fadeOutStep));
                 int framesRead = framesToRender > 0 ? ReadWithLoop(framesToRender) : 0;
 
                 // Ramp from the previous volume to the current one over the buffer (muting goes through the same ramp).
@@ -220,8 +291,9 @@ namespace AsioAudioUnity
 
                 for (int frame = 0; frame < framesRead; frame++)
                 {
-                    transportGain = shouldPlay ? Math.Min(1f, transportGain + gainStep) : Math.Max(0f, transportGain - gainStep);
-                    float sample = _scratchBuffer[frame] * (startVolume + volumeStep * (frame + 1)) * transportGain;
+                    transportGain = shouldPlay ? Math.Min(1f, transportGain + fadeInStep) : Math.Max(0f, transportGain - fadeOutStep);
+                    // Squared: a smoother curve than linear for audible fades
+                    float sample = _scratchBuffer[frame] * (startVolume + volumeStep * (frame + 1)) * (transportGain * transportGain);
 
                     if (validChannel) buffer[offset + frame * channelCount + channelIndex] += sample;
                     if (sample > peak) peak = sample;

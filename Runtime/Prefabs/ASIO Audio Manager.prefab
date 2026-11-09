@@ -48,5 +48,5 @@ MonoBehaviour:
   _targetSampleRate: 48000
   _targetBitsPerSample: 32
   _asioDriverInputChannelCount: 0
-  _customAsioAudioSources: []
+  _asioAudioSources: []
   _displayInfoOnGameWindow: 1

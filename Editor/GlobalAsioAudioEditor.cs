@@ -10,9 +10,9 @@ namespace AsioAudioUnity
     /// </summary>
     public static class GlobalAsioAudioEditor
     {
-        static CustomAsioAudioSource[] FindAllCustomAsioAudioSources()
+        static AsioAudioSource[] FindAllAsioAudioSources()
         {
-            return Object.FindObjectsByType<CustomAsioAudioSource>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            return Object.FindObjectsByType<AsioAudioSource>(FindObjectsInactive.Include, FindObjectsSortMode.None);
         }
 
         static void ConvertAudioSource(AudioSource audioSourceToConvert)
@@ -21,72 +21,72 @@ namespace AsioAudioUnity
 
             GameObject audioSourceToConvertGameObject = audioSourceToConvert.gameObject;
 
-            if (audioSourceToConvertGameObject.GetComponent<CustomAsioAudioSource>() != null)
+            if (audioSourceToConvertGameObject.GetComponent<AsioAudioSource>() != null)
             {
-                Debug.LogWarning("GameObject " + audioSourceToConvertGameObject.name + " already has a Custom ASIO Audio Source, its Audio Source will not be converted.");
+                Debug.LogWarning("GameObject " + audioSourceToConvertGameObject.name + " already has a ASIO Audio Source, its Audio Source will not be converted.");
                 return;
             }
 
-            CustomAsioAudioSource customAsioAudioSource = Undo.AddComponent<CustomAsioAudioSource>(audioSourceToConvertGameObject);
+            AsioAudioSource asioAudioSource = Undo.AddComponent<AsioAudioSource>(audioSourceToConvertGameObject);
 
             // Get file path from AudioClip
             if (audioSourceToConvert.clip == null)
             {
-                Debug.LogWarning("AudioSource " + audioSourceToConvert.name + " has no AudioClip attached, the AudioFilePath of Custom ASIO Audio Source will not be set.");
+                Debug.LogWarning("AudioSource " + audioSourceToConvert.name + " has no AudioClip attached, the AudioFilePath of ASIO Audio Source will not be set.");
             }
             else
             {
-                customAsioAudioSource.AudioFilePath = AssetDatabase.GetAssetPath(audioSourceToConvert.clip);
+                asioAudioSource.AudioFilePath = AssetDatabase.GetAssetPath(audioSourceToConvert.clip);
             }
 
-            DefineCustomAsioAudioSourceOutputChannel(customAsioAudioSource);
+            DefineAsioAudioSourceOutputChannel(asioAudioSource);
 
-            customAsioAudioSource.Loop = audioSourceToConvert.loop;
-            customAsioAudioSource.PlayOnEnable = audioSourceToConvert.playOnAwake;
-            customAsioAudioSource.Volume = audioSourceToConvert.volume;
-            EditorUtility.SetDirty(customAsioAudioSource);
+            asioAudioSource.Loop = audioSourceToConvert.loop;
+            asioAudioSource.PlayOnEnable = audioSourceToConvert.playOnAwake;
+            asioAudioSource.Volume = audioSourceToConvert.volume;
+            EditorUtility.SetDirty(asioAudioSource);
 
             Undo.DestroyObjectImmediate(audioSourceToConvert);
         }
 
         /// <summary>
-        /// Assigns the lowest output channel not already used by another Custom ASIO Audio Source (if none is set yet).
+        /// Assigns the lowest output channel not already used by another ASIO Audio Source (if none is set yet).
         /// </summary>
-        static void DefineCustomAsioAudioSourceOutputChannel(CustomAsioAudioSource customAsioAudioSource)
+        static void DefineAsioAudioSourceOutputChannel(AsioAudioSource asioAudioSource)
         {
-            if (customAsioAudioSource.TargetOutputChannel > 0) return;
+            if (asioAudioSource.TargetOutputChannel > 0) return;
 
-            HashSet<int> usedChannels = new HashSet<int>(FindAllCustomAsioAudioSources()
-                .Where(otherSource => otherSource != customAsioAudioSource)
+            HashSet<int> usedChannels = new HashSet<int>(FindAllAsioAudioSources()
+                .Where(otherSource => otherSource != asioAudioSource)
                 .Select(otherSource => otherSource.TargetOutputChannel));
 
             int targetOutputChannel = 1;
             while (usedChannels.Contains(targetOutputChannel)) targetOutputChannel++;
 
-            customAsioAudioSource.TargetOutputChannel = targetOutputChannel;
-            EditorUtility.SetDirty(customAsioAudioSource);
+            asioAudioSource.TargetOutputChannel = targetOutputChannel;
+            EditorUtility.SetDirty(asioAudioSource);
         }
 
-        static void AddSourcePositionOsc(CustomAsioAudioSource customAsioAudioSource)
+        static void AddSourcePositionOsc(AsioAudioSource asioAudioSource)
         {
-            if (customAsioAudioSource == null) return;
+            if (asioAudioSource == null) return;
 
             OSC oscManager = Object.FindFirstObjectByType<OSC>();
 
             if (!oscManager)
             {
-                Debug.LogError("No OSC Manager found in scene. Please add an OSC Manager to the scene before adding Source Position OSC to Custom ASIO Audio Sources.");
+                Debug.LogError("No OSC Manager found in scene. Please add an OSC Manager to the scene before adding Source Position OSC to ASIO Audio Sources.");
                 return;
             }
-            if (customAsioAudioSource.GetComponent<SourcePositionOsc>() != null)
+            if (asioAudioSource.GetComponent<SourcePositionOsc>() != null)
             {
-                Debug.LogWarning("Source Position OSC already attached to Custom ASIO Audio Source " + customAsioAudioSource.name + ".");
+                Debug.LogWarning("Source Position OSC already attached to ASIO Audio Source " + asioAudioSource.name + ".");
                 return;
             }
 
-            SourcePositionOsc sourcePositionOsc = Undo.AddComponent<SourcePositionOsc>(customAsioAudioSource.gameObject);
+            SourcePositionOsc sourcePositionOsc = Undo.AddComponent<SourcePositionOsc>(asioAudioSource.gameObject);
             sourcePositionOsc.Osc = oscManager;
-            sourcePositionOsc.Index = customAsioAudioSource.TargetOutputChannel;
+            sourcePositionOsc.Index = asioAudioSource.TargetOutputChannel;
             EditorUtility.SetDirty(sourcePositionOsc);
         }
 
@@ -99,24 +99,24 @@ namespace AsioAudioUnity
             return go;
         }
 
-        static void CreateCustomAsioAudioSource(MenuCommand menuCommand, bool addSourcePositionOsc)
+        static void CreateAsioAudioSource(MenuCommand menuCommand, bool addSourcePositionOsc)
         {
             int undoGroup = Undo.GetCurrentGroup();
 
-            GameObject go = CreateGameObjectInScene("Custom ASIO Audio Source", menuCommand);
-            CustomAsioAudioSource customAsioAudioSource = Undo.AddComponent<CustomAsioAudioSource>(go);
+            GameObject go = CreateGameObjectInScene("ASIO Audio Source", menuCommand);
+            AsioAudioSource asioAudioSource = Undo.AddComponent<AsioAudioSource>(go);
 
-            DefineCustomAsioAudioSourceOutputChannel(customAsioAudioSource);
-            if (addSourcePositionOsc) AddSourcePositionOsc(customAsioAudioSource);
+            DefineAsioAudioSourceOutputChannel(asioAudioSource);
+            if (addSourcePositionOsc) AddSourcePositionOsc(asioAudioSource);
 
             Undo.CollapseUndoOperations(undoGroup);
         }
 
-        [MenuItem("AsioAudioUnity/Convert selected Audio Source(s) to Custom ASIO Audio Source(s)", false, 1)]
+        [MenuItem("AsioAudioUnity/Convert selected Audio Source(s) to ASIO Audio Source(s)", false, 1)]
         static void ConvertSelectedAudioSource()
         {
             int undoGroup = Undo.GetCurrentGroup();
-            Undo.SetCurrentGroupName("Convert Audio Sources to Custom ASIO Audio Sources");
+            Undo.SetCurrentGroupName("Convert Audio Sources to ASIO Audio Sources");
 
             foreach (GameObject selectedGameObject in Selection.gameObjects)
             {
@@ -126,13 +126,13 @@ namespace AsioAudioUnity
             Undo.CollapseUndoOperations(undoGroup);
         }
 
-        [MenuItem("AsioAudioUnity/Convert selected Audio Source(s) to Custom ASIO Audio Source(s)", true)]
+        [MenuItem("AsioAudioUnity/Convert selected Audio Source(s) to ASIO Audio Source(s)", true)]
         static bool ValidateConvertSelectedAudioSource()
         {
             return Selection.gameObjects.Length > 0 && Selection.gameObjects.All(selectedGameObject => selectedGameObject.GetComponent<AudioSource>() != null);
         }
 
-        [MenuItem("AsioAudioUnity/Add Source Position OSC to selected Custom ASIO Audio Source(s)", false, 2)]
+        [MenuItem("AsioAudioUnity/Add Source Position OSC to selected ASIO Audio Source(s)", false, 2)]
         static void AddSourcePositionOscToSelected()
         {
             int undoGroup = Undo.GetCurrentGroup();
@@ -140,23 +140,23 @@ namespace AsioAudioUnity
 
             foreach (GameObject selectedGameObject in Selection.gameObjects)
             {
-                AddSourcePositionOsc(selectedGameObject.GetComponent<CustomAsioAudioSource>());
+                AddSourcePositionOsc(selectedGameObject.GetComponent<AsioAudioSource>());
             }
 
             Undo.CollapseUndoOperations(undoGroup);
         }
 
-        [MenuItem("AsioAudioUnity/Add Source Position OSC to selected Custom ASIO Audio Source(s)", true)]
+        [MenuItem("AsioAudioUnity/Add Source Position OSC to selected ASIO Audio Source(s)", true)]
         static bool ValidateAddSourcePositionOscToSelected()
         {
-            return Selection.gameObjects.Length > 0 && Selection.gameObjects.All(selectedGameObject => selectedGameObject.GetComponent<CustomAsioAudioSource>() != null);
+            return Selection.gameObjects.Length > 0 && Selection.gameObjects.All(selectedGameObject => selectedGameObject.GetComponent<AsioAudioSource>() != null);
         }
 
-        [MenuItem("AsioAudioUnity/Convert all Audio Sources in scene to Custom ASIO Audio Sources", false, 21)]
+        [MenuItem("AsioAudioUnity/Convert all Audio Sources in scene to ASIO Audio Sources", false, 21)]
         static void ConvertAllAudioSources()
         {
             int undoGroup = Undo.GetCurrentGroup();
-            Undo.SetCurrentGroupName("Convert all Audio Sources to Custom ASIO Audio Sources");
+            Undo.SetCurrentGroupName("Convert all Audio Sources to ASIO Audio Sources");
 
             foreach (AudioSource basicAudioSource in Object.FindObjectsByType<AudioSource>(FindObjectsInactive.Include, FindObjectsSortMode.None))
             {
@@ -166,39 +166,39 @@ namespace AsioAudioUnity
             Undo.CollapseUndoOperations(undoGroup);
 
             int remainingAudioSources = Object.FindObjectsByType<AudioSource>(FindObjectsInactive.Include, FindObjectsSortMode.None).Length;
-            if (remainingAudioSources == 0) Debug.Log("All Audio Sources in scene have been converted to Custom ASIO Audio Sources.");
-            else Debug.LogWarning(remainingAudioSources + " Audio Source(s) in scene have not been converted to Custom ASIO Audio Sources.");
+            if (remainingAudioSources == 0) Debug.Log("All Audio Sources in scene have been converted to ASIO Audio Sources.");
+            else Debug.LogWarning(remainingAudioSources + " Audio Source(s) in scene have not been converted to ASIO Audio Sources.");
         }
 
-        [MenuItem("AsioAudioUnity/Add Source Position OSC to all Custom ASIO Audio Sources", false, 22)]
+        [MenuItem("AsioAudioUnity/Add Source Position OSC to all ASIO Audio Sources", false, 22)]
         static void AddAllSourcePositionOsc()
         {
             int undoGroup = Undo.GetCurrentGroup();
-            Undo.SetCurrentGroupName("Add Source Position OSC to all Custom ASIO Audio Sources");
+            Undo.SetCurrentGroupName("Add Source Position OSC to all ASIO Audio Sources");
 
-            CustomAsioAudioSource[] allCustomAsioAudioSources = FindAllCustomAsioAudioSources();
-            foreach (CustomAsioAudioSource customAsioAudioSource in allCustomAsioAudioSources)
+            AsioAudioSource[] allAsioAudioSources = FindAllAsioAudioSources();
+            foreach (AsioAudioSource asioAudioSource in allAsioAudioSources)
             {
-                AddSourcePositionOsc(customAsioAudioSource);
+                AddSourcePositionOsc(asioAudioSource);
             }
 
             Undo.CollapseUndoOperations(undoGroup);
 
-            int sourcesWithoutOsc = allCustomAsioAudioSources.Count(customAsioAudioSource => customAsioAudioSource.GetComponent<SourcePositionOsc>() == null);
-            if (sourcesWithoutOsc == 0) Debug.Log("All Custom ASIO Audio Sources in scene have a Source Position OSC attached.");
-            else Debug.LogWarning(sourcesWithoutOsc + " Custom ASIO Audio Source(s) in scene don't have a Source Position OSC attached.");
+            int sourcesWithoutOsc = allAsioAudioSources.Count(asioAudioSource => asioAudioSource.GetComponent<SourcePositionOsc>() == null);
+            if (sourcesWithoutOsc == 0) Debug.Log("All ASIO Audio Sources in scene have a Source Position OSC attached.");
+            else Debug.LogWarning(sourcesWithoutOsc + " ASIO Audio Source(s) in scene don't have a Source Position OSC attached.");
         }
 
-        [MenuItem("GameObject/AsioAudioUnity/Custom ASIO Audio Source", false, 5)]
-        static void CreateCustomAsioAudioSource(MenuCommand menuCommand)
+        [MenuItem("GameObject/AsioAudioUnity/ASIO Audio Source", false, 5)]
+        static void CreateAsioAudioSource(MenuCommand menuCommand)
         {
-            CreateCustomAsioAudioSource(menuCommand, false);
+            CreateAsioAudioSource(menuCommand, false);
         }
 
-        [MenuItem("GameObject/AsioAudioUnity/Custom ASIO Audio Source (with Source Position OSC)", false, 6)]
-        static void CreateCustomAsioAudioSourceWithSourcePositionOsc(MenuCommand menuCommand)
+        [MenuItem("GameObject/AsioAudioUnity/ASIO Audio Source (with Source Position OSC)", false, 6)]
+        static void CreateAsioAudioSourceWithSourcePositionOsc(MenuCommand menuCommand)
         {
-            CreateCustomAsioAudioSource(menuCommand, true);
+            CreateAsioAudioSource(menuCommand, true);
         }
 
         [MenuItem("GameObject/AsioAudioUnity/ASIO Audio Manager", false, 21)]

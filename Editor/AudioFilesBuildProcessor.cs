@@ -11,15 +11,27 @@ using System.Linq;
 namespace AsioAudioUnity
 {
     /// <summary>
-    /// After a build, copies the audio files used by Custom ASIO Audio Sources (in scenes enabled in the build) next to the built player, at the same relative path.
+    /// After a build, copies the audio files used by ASIO Audio Sources (including inactive ones) next to the built player, at the same relative path.
+    /// The scenes are the ones actually built, whatever the list comes from: Build Settings, build profiles, or BuildPipeline.BuildPlayer called from a script.
     /// </summary>
-    public class AudioFilesBuildProcessor : IPostprocessBuildWithReport
+    public class AudioFilesBuildProcessor : BuildPlayerProcessor, IPostprocessBuildWithReport
     {
-        public int callbackOrder => 0;
+        // The scenes of the build in progress, given by PrepareForBuild.
+        private static string[] _builtScenePaths;
+
+        public override int callbackOrder => 0;
+
+        public override void PrepareForBuild(BuildPlayerContext buildPlayerContext)
+        {
+            _builtScenePaths = buildPlayerContext.BuildPlayerOptions.scenes;
+        }
 
         public void OnPostprocessBuild(BuildReport report)
         {
-            HashSet<string> audioFilePaths = CollectAudioFilePathsFromBuildScenes();
+            string[] scenePaths = _builtScenePaths ?? EditorBuildSettings.scenes.Where(scene => scene.enabled).Select(scene => scene.path).ToArray();
+            _builtScenePaths = null;
+
+            HashSet<string> audioFilePaths = CollectAudioFilePaths(scenePaths);
 
             string projectRootPath = Path.GetDirectoryName(Application.dataPath);
             string buildRootPath = Path.GetDirectoryName(report.summary.outputPath);
@@ -51,37 +63,43 @@ namespace AsioAudioUnity
                 }
             }
 
-            Debug.Log($"ASIO Audio Unity: {audioFilePaths.Count} audio file(s) referenced in build scenes, {copiedFiles} copied to the build folder.");
+            Debug.Log($"ASIO Audio Unity: {audioFilePaths.Count} audio file(s) referenced in the built scenes, {copiedFiles} copied to the build folder.");
         }
 
         /// <summary>
-        /// Collects the audio file paths of all Custom ASIO Audio Sources (including inactive ones) in the scenes enabled in the build settings.
+        /// Collects the audio file paths of all ASIO Audio Sources (including inactive ones) in the given scenes.
         /// Scenes that are not already loaded are opened additively and closed afterwards, so the scenes open in the editor are left untouched.
         /// </summary>
-        private static HashSet<string> CollectAudioFilePathsFromBuildScenes()
+        private static HashSet<string> CollectAudioFilePaths(IEnumerable<string> scenePaths)
         {
             HashSet<string> audioFilePaths = new HashSet<string>();
 
-            foreach (EditorBuildSettingsScene buildScene in EditorBuildSettings.scenes.Where(scene => scene.enabled))
+            foreach (string scenePath in scenePaths)
             {
-                Scene scene = SceneManager.GetSceneByPath(buildScene.path);
+                if (string.IsNullOrEmpty(scenePath) || !File.Exists(scenePath))
+                {
+                    Debug.LogWarning($"ASIO Audio Unity: scene \"{scenePath}\" was not found, its audio files were not copied.");
+                    continue;
+                }
+
+                Scene scene = SceneManager.GetSceneByPath(scenePath);
                 bool wasInHierarchy = scene.IsValid();
                 bool openedHere = !scene.isLoaded;
 
-                if (openedHere) scene = EditorSceneManager.OpenScene(buildScene.path, OpenSceneMode.Additive);
+                if (openedHere) scene = EditorSceneManager.OpenScene(scenePath, OpenSceneMode.Additive);
 
                 try
                 {
                     foreach (GameObject rootGameObject in scene.GetRootGameObjects())
                     {
-                        foreach (CustomAsioAudioSource customAsioAudioSource in rootGameObject.GetComponentsInChildren<CustomAsioAudioSource>(true))
+                        foreach (AsioAudioSource asioAudioSource in rootGameObject.GetComponentsInChildren<AsioAudioSource>(true))
                         {
-                            if (string.IsNullOrEmpty(customAsioAudioSource.AudioFilePath))
+                            if (string.IsNullOrEmpty(asioAudioSource.AudioFilePath))
                             {
-                                Debug.LogWarning($"Custom ASIO Audio Source on GameObject \"{customAsioAudioSource.gameObject.name}\" (scene \"{scene.name}\") has no audio file set.");
+                                Debug.LogWarning($"ASIO Audio Source on GameObject \"{asioAudioSource.gameObject.name}\" (scene \"{scene.name}\") has no audio file set.");
                                 continue;
                             }
-                            audioFilePaths.Add(customAsioAudioSource.AudioFilePath);
+                            audioFilePaths.Add(asioAudioSource.AudioFilePath);
                         }
                     }
                 }

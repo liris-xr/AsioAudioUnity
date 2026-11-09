@@ -1,13 +1,16 @@
 ﻿using UnityEngine;
 
-public class RoomPositionOsc : ObjectPositionOsc 
+namespace AsioAudioUnity
 {
-    override public string OscObject => "room";
-
-    [SerializeField] private int _roomIndex;
-    override public int Index
+    public class RoomPositionOsc : ObjectPositionOsc 
     {
-        get { return _roomIndex; }
-        set { _roomIndex = value; }
+        override public string OscObject => "room";
+
+        [SerializeField] private int _roomIndex;
+        override public int Index
+        {
+            get { return _roomIndex; }
+            set { _roomIndex = value; }
+        }
     }
 }

@@ -1,13 +1,16 @@
 ﻿using UnityEngine;
 
-public class SourcePositionOsc : ObjectPositionOsc
+namespace AsioAudioUnity
 {
-    override public string OscObject => "source";
-
-    [SerializeField] private int _sourceIndex;
-    override public int Index
+    public class SourcePositionOsc : ObjectPositionOsc
     {
-        get { return _sourceIndex; }
-        set { _sourceIndex = value; }
+        override public string OscObject => "source";
+
+        [SerializeField] private int _sourceIndex;
+        override public int Index
+        {
+            get { return _sourceIndex; }
+            set { _sourceIndex = value; }
+        }
     }
 }

@@ -5,7 +5,7 @@ using UnityEngine;
 namespace AsioAudioUnity
 {
     /// <summary>
-    /// A mixer-style window showing every Custom ASIO Audio Source of the scene as a channel strip:
+    /// A mixer-style window showing every ASIO Audio Source of the scene as a channel strip:
     /// output channel, level meter, volume, mute / solo, loop and transport controls.
     /// </summary>
     public class AsioMixerWindow : EditorWindow
@@ -58,7 +58,7 @@ namespace AsioAudioUnity
         private void OnGUI()
         {
             AsioAudioManager manager = AsioEditorUtility.FindManager();
-            CustomAsioAudioSource[] allSources = AsioEditorUtility.FindAllSources();
+            AsioAudioSource[] allSources = AsioEditorUtility.FindAllSources();
             int outputChannelCount = AsioEditorUtility.GetKnownOutputChannelCount(manager);
 
             DrawToolbar(manager);
@@ -71,7 +71,12 @@ namespace AsioAudioUnity
 
             _scrollPosition = EditorGUILayout.BeginScrollView(_scrollPosition);
             EditorGUILayout.BeginHorizontal();
-            foreach (CustomAsioAudioSource source in allSources)
+            if (manager != null)
+            {
+                DrawMasterStrip(manager);
+                GUILayout.Space(8f);
+            }
+            foreach (AsioAudioSource source in allSources)
             {
                 DrawStrip(source, allSources, outputChannelCount);
             }
@@ -129,29 +134,108 @@ namespace AsioAudioUnity
                     Selection.activeObject = manager;
                     EditorGUIUtility.PingObject(manager);
                 }
+                if (EditorGUILayout.DropdownButton(new GUIContent("Snapshots", "Save and recall mixes: master volume, and volume / mute / solo of every source."), FocusType.Passive, EditorStyles.toolbarDropDown))
+                {
+                    ShowSnapshotMenu(manager);
+                }
             }
 
-            if (GUILayout.Button(new GUIContent("+ Source", "Create a Custom ASIO Audio Source on the next free channel"), EditorStyles.toolbarButton))
+            if (GUILayout.Button(new GUIContent("+ Source", "Create a ASIO Audio Source on the next free channel"), EditorStyles.toolbarButton))
             {
-                EditorApplication.ExecuteMenuItem("GameObject/AsioAudioUnity/Custom ASIO Audio Source");
+                EditorApplication.ExecuteMenuItem("GameObject/AsioAudioUnity/ASIO Audio Source");
             }
 
             EditorGUILayout.EndHorizontal();
+        }
+
+        private static void ShowSnapshotMenu(AsioAudioManager manager)
+        {
+            GenericMenu menu = new GenericMenu();
+            menu.AddItem(new GUIContent("Save Current Mix as New Snapshot"), false, () => AsioEditorUtility.SaveSnapshot(manager, AsioEditorUtility.NextSnapshotName(manager)));
+
+            if (manager.Snapshots.Count > 0) menu.AddSeparator("");
+            for (int i = 0; i < manager.Snapshots.Count; i++)
+            {
+                int index = i;
+                string label = (i + 1) + ". " + manager.Snapshots[i].Name.Replace("/", "∕"); // A '/' would create a submenu
+                menu.AddItem(new GUIContent("Recall/" + label), false, () => AsioEditorUtility.RecallSnapshot(manager, index));
+                menu.AddItem(new GUIContent("Update with Current Mix/" + label), false, () => AsioEditorUtility.SaveSnapshot(manager, manager.Snapshots[index].Name));
+                menu.AddItem(new GUIContent("Delete/" + label), false, () => AsioEditorUtility.DeleteSnapshot(manager, index));
+            }
+
+            menu.AddSeparator("");
+            menu.AddItem(new GUIContent("Rename in the ASIO Audio Manager…"), false, () =>
+            {
+                Selection.activeObject = manager;
+                EditorGUIUtility.PingObject(manager);
+            });
+            menu.ShowAsContext();
         }
 
         private void DrawEmptyState()
         {
             GUILayout.FlexibleSpace();
-            EditorGUILayout.LabelField("There is no Custom ASIO Audio Source in the scene.", EditorStyles.centeredGreyMiniLabel);
+            EditorGUILayout.LabelField("There is no ASIO Audio Source in the scene.", EditorStyles.centeredGreyMiniLabel);
             EditorGUILayout.BeginHorizontal();
             GUILayout.FlexibleSpace();
-            if (GUILayout.Button("Create Custom ASIO Audio Source", GUILayout.Width(220f))) EditorApplication.ExecuteMenuItem("GameObject/AsioAudioUnity/Custom ASIO Audio Source");
+            if (GUILayout.Button("Create ASIO Audio Source", GUILayout.Width(220f))) EditorApplication.ExecuteMenuItem("GameObject/AsioAudioUnity/ASIO Audio Source");
             GUILayout.FlexibleSpace();
             EditorGUILayout.EndHorizontal();
             GUILayout.FlexibleSpace();
         }
 
-        private void DrawStrip(CustomAsioAudioSource source, CustomAsioAudioSource[] allSources, int outputChannelCount)
+        // The master volume of the manager, applied to all sources, with the level sent to the driver.
+        private void DrawMasterStrip(AsioAudioManager manager)
+        {
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox, GUILayout.Width(StripWidth));
+
+            GUIStyle nameStyle = new GUIStyle(EditorStyles.boldLabel) { alignment = TextAnchor.MiddleCenter };
+            if (GUILayout.Button(new GUIContent("Master", "Volume applied to all sources\nClick to select the ASIO Audio Manager"), nameStyle, ContentWidth))
+            {
+                Selection.activeObject = manager;
+                EditorGUIUtility.PingObject(manager);
+            }
+            GUILayout.Label("All outputs", EditorStyles.centeredGreyMiniLabel, ContentWidth);
+            GUILayout.Label(manager.IsConnected ? "To the driver" : "", EditorStyles.centeredGreyMiniLabel, ContentWidth);
+            GUILayout.Space(4f); // aligns the fader with the source strips (their channel popup is taller than a label)
+
+            Rect faderAreaRect = GUILayoutUtility.GetRect(StripContentWidth, FaderHeight, ContentWidth);
+            Rect faderRect = new Rect(faderAreaRect.center.x - AsioVolumeFader.VerticalWidth / 2f, faderAreaRect.y, AsioVolumeFader.VerticalWidth, faderAreaRect.height);
+
+            EditorGUI.BeginChangeCheck();
+            float volume = AsioVolumeFader.Draw(faderRect, manager.MasterVolume, EditorApplication.isPlaying && manager.IsConnected ? manager.MasterMeterLevel : 0f, true);
+            if (EditorGUI.EndChangeCheck()) AsioEditorUtility.RecordChange(manager, "Change Master Volume", () => manager.MasterVolume = volume);
+
+            GUILayout.Label(new GUIContent(AsioVolume.FormatLinear(manager.MasterVolume), "Master volume (double-click the fader to reset to 0 dB)"), EditorStyles.centeredGreyMiniLabel, ContentWidth);
+
+            // How many sources play (on the row of the sources' Mute / Solo / Loop buttons)
+            bool isPlaying = EditorApplication.isPlaying;
+            int playingCount = 0, pausedCount = 0;
+            foreach (AsioAudioSource source in manager.AsioAudioSources)
+            {
+                if (!source) continue;
+                if (source.AudioStatus == AsioAudioStatus.Playing) playingCount++;
+                else if (source.AudioStatus == AsioAudioStatus.Paused) pausedCount++;
+            }
+            string summary = !isPlaying ? "Edit mode" : playingCount + " playing" + (pausedCount > 0 ? ", " + pausedCount + " paused" : "");
+            GUILayout.Label(summary, EditorStyles.centeredGreyMiniLabel, ContentWidth, GUILayout.Height(18f));
+
+            // Transport for all sources (on the row of the sources' transport buttons)
+            using (new EditorGUI.DisabledScope(!isPlaying || !manager.isActiveAndEnabled))
+            {
+                EditorGUILayout.BeginHorizontal();
+                if (GUILayout.Button(new GUIContent("▶", "Play all sources (they start on the same sample)"), EditorStyles.miniButtonLeft)) manager.PlayAll();
+                if (GUILayout.Button(new GUIContent("II", "Pause all sources"), EditorStyles.miniButtonMid)) manager.PauseAll();
+                if (GUILayout.Button(new GUIContent("■", "Stop all sources"), EditorStyles.miniButtonMid)) manager.StopAll();
+                if (GUILayout.Button(new GUIContent("|◀", "Play all sources from the start, together"), EditorStyles.miniButtonRight)) manager.RestartAll();
+                EditorGUILayout.EndHorizontal();
+            }
+            GUILayout.Label("All sources", EditorStyles.centeredGreyMiniLabel, ContentWidth);
+
+            EditorGUILayout.EndVertical();
+        }
+
+        private void DrawStrip(AsioAudioSource source, AsioAudioSource[] allSources, int outputChannelCount)
         {
             bool isPlaying = EditorApplication.isPlaying;
             bool isActive = source.gameObject.activeInHierarchy && source.enabled;
@@ -193,18 +277,15 @@ namespace AsioAudioUnity
             string fileText = string.IsNullOrEmpty(source.AudioFilePath) ? "No audio file" : Path.GetFileName(source.AudioFilePath);
             GUILayout.Label(new GUIContent(fileText, fileMissing && !string.IsNullOrEmpty(source.AudioFilePath) ? "File not found: " + source.AudioFilePath : source.AudioFilePath), fileStyle, ContentWidth);
 
-            // Meter and fader
+            // Fader with its dB scale and meter (double-click: 0 dB)
             Rect faderAreaRect = GUILayoutUtility.GetRect(StripContentWidth, FaderHeight, ContentWidth);
-            Rect meterRect = new Rect(faderAreaRect.center.x - 18f, faderAreaRect.y + 4f, 8f, faderAreaRect.height - 8f);
-            Rect faderRect = new Rect(faderAreaRect.center.x + 2f, faderAreaRect.y, 20f, faderAreaRect.height);
-            AsioEditorUtility.DrawMeter(meterRect, isPlaying ? source.MeterLevel : 0f, true);
+            Rect faderRect = new Rect(faderAreaRect.center.x - AsioVolumeFader.VerticalWidth / 2f, faderAreaRect.y, AsioVolumeFader.VerticalWidth, faderAreaRect.height);
 
             EditorGUI.BeginChangeCheck();
-            float volume = GUI.VerticalSlider(faderRect, source.Volume, 1f, 0f);
+            float volume = AsioVolumeFader.Draw(faderRect, source.Volume, isPlaying ? source.MeterLevel : 0f, true);
             if (EditorGUI.EndChangeCheck()) AsioEditorUtility.RecordChange(source, "Change Volume", () => source.Volume = volume);
 
-            string volumeText = source.Volume <= 0.0001f ? "-∞ dB" : (20f * Mathf.Log10(source.Volume)).ToString("0.0") + " dB";
-            GUILayout.Label(volumeText, EditorStyles.centeredGreyMiniLabel, ContentWidth);
+            GUILayout.Label(new GUIContent(AsioVolume.FormatLinear(source.Volume), "Volume (double-click the fader to reset to 0 dB)"), EditorStyles.centeredGreyMiniLabel, ContentWidth);
 
             // Mute / Solo
             EditorGUILayout.BeginHorizontal();
@@ -237,7 +318,7 @@ namespace AsioAudioUnity
             EditorGUILayout.EndVertical();
         }
 
-        private static void DrawToggle(CustomAsioAudioSource source, bool value, string label, string tooltip, Color activeColor, GUIStyle style, System.Action<bool> setter)
+        private static void DrawToggle(AsioAudioSource source, bool value, string label, string tooltip, Color activeColor, GUIStyle style, System.Action<bool> setter)
         {
             Color previousBackground = GUI.backgroundColor;
             if (value) GUI.backgroundColor = activeColor;

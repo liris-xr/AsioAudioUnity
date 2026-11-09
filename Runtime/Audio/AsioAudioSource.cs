@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using UnityEngine;
 using UnityEngine.Events;
+using UnityEngine.Scripting.APIUpdating;
 using NAudio.Wave;
 
 namespace AsioAudioUnity
@@ -11,7 +12,8 @@ namespace AsioAudioUnity
     /// The audio file is mixed down to mono and played on one output channel of the ASIO driver (TargetOutputChannel), through the ASIO Audio Manager.
     /// Files are resampled on the fly to the ASIO Audio Manager's target sample rate, so they can have any sample rate.
     /// </summary>
-    public class CustomAsioAudioSource : MonoBehaviour
+    [MovedFrom(true, sourceClassName: "CustomAsioAudioSource")] // Formerly CustomAsioAudioSource: Unity's API updater rewrites scripts that still use the old name
+    public class AsioAudioSource : MonoBehaviour
     {
         private UnityEvent _onAudioFilePathChanged;
         public UnityEvent OnAudioFilePathChanged
@@ -95,7 +97,8 @@ namespace AsioAudioUnity
 
         [SerializeField][Range(0f, 1f)] private float _volume = 1f;
         /// <summary>
-        /// Playback volume, from 0 to 1. Applied live (smoothly) while playing.
+        /// Playback volume, from 0 to 1: the linear gain applied to the samples (0.5 is -6 dB, not half as loud; see VolumeDecibels).
+        /// Applied live (smoothly) while playing.
         /// </summary>
         public float Volume
         {
@@ -109,6 +112,16 @@ namespace AsioAudioUnity
                 if (OnVolumeChanged != null)
                     OnVolumeChanged.Invoke();
             }
+        }
+
+        /// <summary>
+        /// Playback volume in decibels (0 dB: original level, -6 dB: half the amplitude, about -10 dB: half as loud). Negative infinity is silence.
+        /// Same setting as Volume, which is linear.
+        /// </summary>
+        public float VolumeDecibels
+        {
+            get { return AsioVolume.ToDecibels(Volume); }
+            set { Volume = AsioVolume.ToLinear(value); }
         }
 
         [SerializeField] private bool _mute = false;
@@ -171,6 +184,35 @@ namespace AsioAudioUnity
             {
                 _loop = value;
                 if (_voice != null) _voice.Loop = value;
+            }
+        }
+
+        [SerializeField][Min(0f)] private float _fadeInDuration = 0f;
+        /// <summary>
+        /// Fade-in duration of Play (and of resuming after a pause), in seconds. 0: a few milliseconds, just enough to avoid clicks.
+        /// </summary>
+        public float FadeInDuration
+        {
+            get { return _fadeInDuration; }
+            set
+            {
+                _fadeInDuration = Mathf.Max(0f, value);
+                if (_voice != null) _voice.FadeInSeconds = _fadeInDuration;
+            }
+        }
+
+        [SerializeField][Min(0f)] private float _fadeOutDuration = 0f;
+        /// <summary>
+        /// Fade-out duration of Pause and Stop, in seconds. 0: a few milliseconds, just enough to avoid clicks.
+        /// The status changes immediately; the sound fades out afterwards.
+        /// </summary>
+        public float FadeOutDuration
+        {
+            get { return _fadeOutDuration; }
+            set
+            {
+                _fadeOutDuration = Mathf.Max(0f, value);
+                if (_voice != null) _voice.FadeOutSeconds = _fadeOutDuration;
             }
         }
 
@@ -345,6 +387,8 @@ namespace AsioAudioUnity
 
             _voice.Volume = Mathf.Clamp01(_volume);
             _voice.Loop = _loop;
+            _voice.FadeInSeconds = _fadeInDuration;
+            _voice.FadeOutSeconds = _fadeOutDuration;
 
             // Revalidating the channel logs errors and changes the manager's list: deferred to Update rather than done during validation.
             if (_voice.OutputChannel != _targetOutputChannel) _outputChannelEditedInInspector = true;
@@ -371,6 +415,8 @@ namespace AsioAudioUnity
 
             _voice.Volume = _volume;
             _voice.Loop = _loop;
+            _voice.FadeInSeconds = _fadeInDuration;
+            _voice.FadeOutSeconds = _fadeOutDuration;
             _voice.OutputChannel = _targetOutputChannel;
 
             if (reloadAudioFile || !_voice.IsLoaded) return LoadAudioFile();
@@ -440,6 +486,12 @@ namespace AsioAudioUnity
         /// </summary>
         public void Play()
         {
+            Play(false);
+        }
+
+        // Deferred: the voice starts when the ASIO Audio Manager applies the deferred changes (together with other sources).
+        internal void Play(bool deferred)
+        {
             if (AudioStatus == AsioAudioStatus.Playing) return;
 
             if (_voice == null || !_voice.IsLoaded || ReferencedAsioAudioManager == null)
@@ -453,7 +505,7 @@ namespace AsioAudioUnity
                 UnityEngine.Debug.LogWarning("The ASIO Audio Source attached to GameObject \"" + gameObject.name + "\" is playing, but the ASIO driver is not connected: it will be heard once the ASIO Audio Manager connects.");
             }
 
-            _voice.Play();
+            _voice.Play(deferred);
             AudioStatus = AsioAudioStatus.Playing;
             OnPlay.Invoke();
         }
@@ -463,9 +515,14 @@ namespace AsioAudioUnity
         /// </summary>
         public void Stop()
         {
+            Stop(false);
+        }
+
+        internal void Stop(bool deferred)
+        {
             if (AudioStatus == AsioAudioStatus.Stopped) return;
 
-            _voice?.Stop();
+            _voice?.Stop(deferred);
             CurrentTimestamp = 0;
             AudioStatus = AsioAudioStatus.Stopped;
             OnStop.Invoke();
@@ -476,9 +533,14 @@ namespace AsioAudioUnity
         /// </summary>
         public void Pause()
         {
+            Pause(false);
+        }
+
+        internal void Pause(bool deferred)
+        {
             if (AudioStatus != AsioAudioStatus.Playing) return;
 
-            _voice.Pause();
+            _voice.Pause(deferred);
             AudioStatus = AsioAudioStatus.Paused;
             OnPause.Invoke();
         }
@@ -488,15 +550,16 @@ namespace AsioAudioUnity
         /// </summary>
         public void Restart()
         {
+            Restart(false);
+        }
+
+        internal void Restart(bool deferred)
+        {
             if (_voice == null || !_voice.IsLoaded) return;
 
-            _voice.Seek(0);
+            _voice.Restart(deferred);
             CurrentTimestamp = 0;
-            if (AudioStatus != AsioAudioStatus.Playing)
-            {
-                _voice.Play();
-                AudioStatus = AsioAudioStatus.Playing;
-            }
+            AudioStatus = AsioAudioStatus.Playing;
         }
 
         /// <summary>
