@@ -224,7 +224,7 @@ PrefabInstance:
     m_Modifications:
     - target: {fileID: 784176063641634255, guid: ba751dea13c088c42a30ef26c5816686, type: 3}
       propertyPath: _audioFilePath
-      value: Assets/Samples/Asio Audio Unity/3.0.0/Demo Scene/Sounds/766943__josefpres__piano-loops-149-efect-3-octave-long-loop-120-bpm.wav
+      value: Assets/Samples/Asio Audio Unity/3.1.0/Demo Scene/Sounds/766943__josefpres__piano-loops-149-efect-3-octave-long-loop-120-bpm.wav
       objectReference: {fileID: 0}
     - target: {fileID: 784176063641634255, guid: ba751dea13c088c42a30ef26c5816686, type: 3}
       propertyPath: _targetOutputChannel
@@ -294,7 +294,7 @@ PrefabInstance:
     m_Modifications:
     - target: {fileID: 784176063641634255, guid: ba751dea13c088c42a30ef26c5816686, type: 3}
       propertyPath: _audioFilePath
-      value: Assets/Samples/Asio Audio Unity/3.0.0/Demo Scene/Sounds/762785__robinhood76__13449-mystic-atmosphere-ambient.wav
+      value: Assets/Samples/Asio Audio Unity/3.1.0/Demo Scene/Sounds/762785__robinhood76__13449-mystic-atmosphere-ambient.wav
       objectReference: {fileID: 0}
     - target: {fileID: 784176063641634255, guid: ba751dea13c088c42a30ef26c5816686, type: 3}
       propertyPath: _targetOutputChannel
@@ -525,7 +525,7 @@ PrefabInstance:
     m_Modifications:
     - target: {fileID: 784176063641634255, guid: ba751dea13c088c42a30ef26c5816686, type: 3}
       propertyPath: _audioFilePath
-      value: Assets/Samples/Asio Audio Unity/3.0.0/Demo Scene/Sounds/774571__audiocoffee__a-tale-of-christmas-short-ver.wav
+      value: Assets/Samples/Asio Audio Unity/3.1.0/Demo Scene/Sounds/774571__audiocoffee__a-tale-of-christmas-short-ver.wav
       objectReference: {fileID: 0}
     - target: {fileID: 784176063641634255, guid: ba751dea13c088c42a30ef26c5816686, type: 3}
       propertyPath: _targetOutputChannel
@@ -595,7 +595,7 @@ PrefabInstance:
     m_Modifications:
     - target: {fileID: 784176063641634255, guid: ba751dea13c088c42a30ef26c5816686, type: 3}
       propertyPath: _audioFilePath
-      value: Assets/Samples/Asio Audio Unity/3.0.0/Demo Scene/Sounds/770210__byronabadia__sad-in-the-sky.wav
+      value: Assets/Samples/Asio Audio Unity/3.1.0/Demo Scene/Sounds/770210__byronabadia__sad-in-the-sky.wav
       objectReference: {fileID: 0}
     - target: {fileID: 784176063641634255, guid: ba751dea13c088c42a30ef26c5816686, type: 3}
       propertyPath: _targetOutputChannel

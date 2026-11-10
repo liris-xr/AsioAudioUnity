@@ -49,6 +49,18 @@ namespace AsioAudioUnity
             set { _masterVolume = Mathf.Clamp01(value); }
         }
 
+        [SerializeField] private bool _pauseWithEditor = true;
+        /// <summary>
+        /// In the Editor, pausing Play mode (the Pause button) also pauses the playing sources, and resuming plays them again,
+        /// together (applications following the transport, like REAPER with the REAPER Controller, pause and resume too).
+        /// The ASIO audio runs on its own thread, so without this it keeps playing while the editor is paused.
+        /// </summary>
+        public bool PauseWithEditor
+        {
+            get { return _pauseWithEditor; }
+            set { _pauseWithEditor = value; }
+        }
+
         [SerializeField] private bool _displayInfoOnGameWindow = true;
         /// <summary>Whether the in-game overlay is shown.</summary>
         public bool DisplayInfoOnGameWindow

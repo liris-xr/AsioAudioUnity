@@ -1,185 +1,60 @@
 (Work in progress)
 
 # Asio Audio for Unity
-A simple package that simulates Unity Audio Sources that send audio data through ASIO protocol, and sends Audio Sources positions using OSC protocol.
 
-This package uses different frameworks:
+Play Unity's sounds through an **ASIO driver**, each sound on its own output channel, and send their **positions over OSC**. With [REAPER](https://www.reaper.fm/) (through its ReaRoute ASIO driver) and [Spat Revolution](https://www.flux.audio/project/spat-revolution/), this spatialises a Unity scene on any speaker layout.
 
-- [UnityOSC](https://t-o-f.info/UnityOSC/) by thomasfredericks, to send Audio Sources positions through OSC protocol.
-- [NAudio](https://github.com/naudio/NAudio) by Mark Heath, an open-source .NET audio library. 
-
-## How to install
-
-You can install the Asio Audio Unity package directly via Unity's Package Manager:
-
-1. Open your Unity project.
-2. Go to *Window* > *Package Manager*.
-3. Click the *+* button in the top-left.
-4. Select "Add package from git URL...".
-5. Paste the following repository URL and click Add: ```https://github.com/liris-xr/AsioAudioUnity.git```
-
-The package will then appear in your Packages folder under Asio Audio Unity.
-
-### Demo Scene
-
-A demo scene is available to import with the package:
-
-1. Select the package through the Unity's Package Manager.
-2. Go to the *Samples* tab and import *Demo Scene*.
-3. When the import is done, you will have access to a scene named *AsioAudioScene*. This scene is in `/Assets/Samples/Asio Audio Unity/*version of the package*/Demo Scene`.
-
-## Intended Workflow
-The purpose of this package is to simulate the behaviour of Unity Audio Sources, with 2 main goals:
-- Adding the ability to send real-time position of Audio Sources through OSC protocol.
-- Modifying the standard Unity audio output, and using the ASIO driver type to send audio data instead.
-
-The idea behind is to use [REAPER](https://www.reaper.fm/) and [Spat Revolution](https://www.flux.audio/project/spat-revolution/) softwares to simulate spatialisation of Audio Sources on any output configuration.
-
-REAPER will be used to get audio data using the ReaRoute ASIO driver, then to send the data to Spat Revolution.
-
-Source positions will directly be sent using OSC to Spat Revolution.
+Unity sends each sound to REAPER on its own channel, and its position to Spat Revolution. Spat Revolution calculates the spatialisation, then either plays the result on the audio interface itself (**A**), or sends it back to REAPER, which plays it (**B**):
 
 ```mermaid
 graph LR
-A[Unity] -- ASIO Channel 1 --> B[REAPER]
-A -- ASIO Channel 2 --> B
-A -- ASIO Channel 3 --> B
-A -- ... --> B
-B -- Local Audio Path (through VST plugin) --> C{Spat Revolution}
-A -- OSC --> C
+A[Unity] -- ASIO channels 1, 2, 3... --> B[REAPER]
+B -- Spat Send plugin --> C{Spat Revolution}
+A -- OSC: positions --> C
+C -- A: audio interface --> D[Speakers / headphones]
+C -- B: Spat Return plugin --> B
+B -- B: audio interface --> D
 ```
+
+See [How it works](/Documentation~/Tutorials/1-Installation.md#how-it-works) for the two workflows.
+
+## Features
+
+- **ASIO Audio Source**: replaces Unity's Audio Source, and plays a WAV, AIFF, MP3 or FLAC file on one ASIO output channel, with fades, a smooth (crossfaded) loop, mute / solo, and a waveform in the Inspector.
+- **Sample-accurate sync**: Play All, Pause All, Stop All and Restart All start every source on the same sample.
+- **Mixing**: the ASIO Audio Mixer window, an in-game overlay (also in builds), dB faders and meters, and mix snapshots.
+- **Spat OSC plugin**: the Spat Controller sends the positions of every source and room to Spat Revolution.
+- **REAPER OSC plugin**: the REAPER Controller follows Unity's transport, plays regions, and runs actions and Lua scripts on Unity events.
+- **OSC remote**: control playback, volumes and snapshots from another application (TouchOSC, REAPER, Max...).
+
+Windows only (ASIO). Tested with Unity 6.3 LTS.
+
+## How to install
+
+1. In Unity, open *Window > Package Manager*.
+2. Click **+** > **Add package from git URL...**
+3. Paste `https://github.com/liris-xr/AsioAudioUnity.git` and click **Add**.
+
+A demo scene can be imported from the package's **Samples** tab in the Package Manager.
 
 ## Getting started
 
-### Outside Unity
-A REAPER license and a Spat Revolution license (and account) are needed for this to work.
+Follow the [tutorials](/Documentation~/README.md#tutorials), in order:
 
-Download and install REAPER [here](https://www.reaper.fm/download.php).
-> **Warning:** On the REAPER installer, make sure you add the ReaRoute ASIO driver (which is not selected by default), otherwise you will not be able to retrieve ASIO data on REAPER.
-
-Download install Flux Center (for Spat Revolution) [here](https://www.flux.audio/download/). 
-
-### REAPER
-
-Launch REAPER, and set the ASIO inputs (using ReaRoute ASIO) :
-
-- Go to *Options > Preferences*, search for *Device* section and set the Audio System to Dummy Audio.
-	> We don't want any output audio device set on REAPER, because the output will be handled by Spat Revolution.
-
-	> **Warning:** The defined sample rate has to be the same as the sample rate defined in Unity (see [Unity Section](#unity)) and in Spat Revolution (see [Spat Revolution Section](#spat-revolution)). This should be defined according to which sample rates are supported by the output device.
-
-- Set 4 empty tracks (using shortcut Ctrl+T) and arm the record by clicking the ![Alt Text](/Documentation~/pictures/reaperrecord.png) button.
-
-- For each track, change the record input (![Alt Text](/Documentation~/pictures/reaperinput.png)) and set to ReaRoute inputs 1 to 4, if ReaRoute inputs are not available, check your REAPER installation and verify that ReaRoute ASIO has been checked while installing REAPER.
-
-It should look like this:
-
-<img src="/Documentation~/pictures/reapertracks.png" alt="drawing" width="400"/>
-
-**REAPER is now ready to recieve audio data via ASIO from Unity.**
-
-Now that we configured REAPER ASIO inputs with 4 channels, we will now configure the output to Spat Revolution. For this we will need the **Spat Revolution Send VST** plugin:
-
-- Open Flux Center and install Spat Revolution Send. This will install a VST plugin on your PC.
-
-- Now on REAPER, go to *Options > Preferences*, search for *VST* section.
-
-- On VST plug-in paths check that the path `%COMMONPROGRAMFILES%/VS3` is configured, click *Re-scan... > Clear cache and re-scan VST paths for all plugins*, it should add the plugin to REAPER.
-
-- Check if the VST plugin is available. To do this, select a track, click on the FX button (NOT THE IN FX), and search for `VST3: Spat Revolution - Send (FLUX) (64ch)`:
-
-<img src="/Documentation~/pictures/reaperfx.png" alt="drawing" width="400"/>
-
-- On the Spat Revolution Send VST window, enable Local Audio Path to send audio data to Spat:
-
-<img src="/Documentation~/pictures/reaperenable.png" alt="drawing" width="400"/>
-
-- Do the 2 last steps on each track created (from "Check if the VST plugin is available").
-
-### Spat Revolution
-
-Open Flux Center and download Spat Revolution, the installation should be done automatically.
-
-- Launch Spat Revolution and go directly to the *Preferences* tab. 
-
-- **For audio data:** Go to IO Hardware, set the desired output device (must be an ASIO device), and configure the sample rate and the block size so it matches the available properties of the device. The two properties must also match the properties set in REAPER about the Dummy Audio device, to avoid any unwanted audio artifact.
-
-<img src="/Documentation~/pictures/spatio.PNG" alt="drawing" width="400"/> <img src="/Documentation~/pictures/reaperdummy.png" alt="drawing" width="400"/>
-
--  **For audio source position:** Go to OSC Main, and be sure that OSC is enabled by ticking the first button. Then, on OSC Connections, add a new connection: `input | Spat Revolution - Plugins`, and set up the IP address to localhost (127.0.0.1), and the port 8100.
-
-<img src="/Documentation~/pictures/spatosc.PNG" alt="drawing" width="400"/> <img src="/Documentation~/pictures/spatoscip.PNG" alt="drawing" width="400"/>
-
-- Once done, go to the *Setup* tab, and you should already see 4 inputs on the Input line, corresponding to the 4 tracks set on REAPER.
-	>If you don't see them, refer to the [REAPER](#reaper) section to set them up.
-
-- Do the following:
-	- Add 4 source transcoders on the Source Transcoder line, connect them to the 4 tracks, and verify that Output Configuration is set to Mono on each transcoder.
-	- Add 4 sources on the Source line, connect them to the 4 source transcoders (they should have a Mono configuration).
-	- Add a room on the Room line, specify the output configuration wanted, and connect each created source above to this room.
-	- Finally, add an output on the Output line and connect it to the created room above (it should automatically add an intermediary master component on the Master line).
-- This should be set as follows:
-
-<img src="/Documentation~/pictures/spatconfig.png" alt="drawing" width="800"/>
-
-You can see on the *Room* tab the final configuration of the room and sources.
-
-### Unity
-
-Once REAPER and Spat Revolution are set, we will open the package on a Unity project. To do this:
-
-- Create a project or open an existing project using Unity Hub.
-
-- Import the Asio Audio Unity Package to the project (see [How to install](#how-to-install)), import the demo scene (see [Demo Scene](#demo-scene)) and open it.
-
-- Open *Edit > Project Settings > ASIO Audio*, click *Create ASIO Audio Settings* (the first time), choose the **ReaRoute ASIO** driver and the same **Sample Rate** as REAPER (see [Setup ASIO Audio Environment](/Documentation~/SetupAsioAudioEnvironment.md)).
-
-- Identify the ASIO Audio Sources on the Scene, and pick one. On the Inspector tab, select the component [AsioAudioSource](/Documentation~/Audio%20Components/AsioAudioSource.md) and verify that `PlayOnEnable` is set to `true`.
-
-- Identify the Spat Controller object on the Scene (under *-- Managers --*), and verify that its **Address** and **Port** match the ones set on Spat Revolution (respectively by default 127.0.0.1 and 8100).
-
-- Click Play, and see if audio data is transmitted to REAPER. The REAPER track that should get data is the one identified with the `TargetOutputChannel` on the [AsioAudioSource](/Documentation~/Audio%20Components/AsioAudioSource.md) component, which will point to the corresponding ReaRoute input. 
-	> Example: On Unity, if a [AsioAudioSource](/Documentation~/Audio%20Components/AsioAudioSource.md) has its `PlayOnEnable` property ticked, and its `TargetOutputChannel` property set to 3, the REAPER track identified by input ReaRoute 3 should get the data when playing the scene.
-
-<img src="/Documentation~/pictures/finalresult.png" alt="drawing" width="800"/>
+1. [Installation](/Documentation~/Tutorials/1-Installation.md)
+2. [Set up REAPER](/Documentation~/Tutorials/2-SetupReaper.md)
+3. [Set up Spat Revolution](/Documentation~/Tutorials/3-SetupSpatRevolution.md)
+4. [First play in Unity](/Documentation~/Tutorials/4-FirstPlay.md)
+5. [ASIO sources in your scene](/Documentation~/Tutorials/5-AddSources.md)
+6. [Send positions to Spat Revolution](/Documentation~/Tutorials/6-SendPositionsToSpat.md)
+7. [Control REAPER from Unity](/Documentation~/Tutorials/7-ControlReaper.md)
+8. [Control Unity over OSC](/Documentation~/Tutorials/8-ControlUnityOverOsc.md)
 
 ## Documentation
 
-The full Documentation is available [here](/Documentation~).
+The [documentation home](/Documentation~/README.md) has the tutorials, the [reference](/Documentation~/README.md#reference) of every component and setting, and [troubleshooting](/Documentation~/Tutorials/Troubleshooting.md). The changes of each version are in the [changelog](/CHANGELOG.md).
 
-#### Audio Components
+## Credits
 
-[ASIO Audio Settings and AsioAudioManager](/Documentation~/Audio%20Components/AsioAudioManager.md): Project Settings > ASIO Audio, and the manager created automatically
-
-[AsioAudioSource](/Documentation~/Audio%20Components/AsioAudioSource.md)
-
-#### Plugins
-
-The package has two optional plugins, built in (nothing to import), each in its own assemblies. The core doesn't depend on them, and they don't depend on each other: both use the package's shared OSC library (`Runtime/Osc`, which also has the OSC Manager and the [OSC remote](/Documentation~/OSC%20Components/AsioOscRemote.md) to receive OSC).
-
-- **Spat OSC** (`Modules/SpatOsc`): sends the positions of sources and rooms to Spat Revolution, with the Spat Controller.
-- **REAPER OSC** (`Modules/ReaperOsc`): controls REAPER from Unity: follows Unity's transport, plays regions, runs actions and Lua scripts on Unity events.
-
-#### OSC (shared library)
-
-[AsioOscRemote](/Documentation~/OSC%20Components/AsioOscRemote.md): control playback, volumes and snapshots over OSC
-
-#### Spat OSC (plugin)
-
-[SpatController](/Documentation~/Spat%20OSC/SpatController.md): sends the positions of all the ASIO Audio Sources and rooms to Spat Revolution
-
-[RoomPositionOsc](/Documentation~/Spat%20OSC/RoomPositionOsc.md) and [SourcePositionOsc](/Documentation~/Spat%20OSC/SourcePositionOsc.md): obsolete, replaced by the Spat Controller
-
-#### REAPER OSC (plugin)
-
-[ReaperController](/Documentation~/REAPER%20OSC/ReaperController.md): follow Unity's transport, play regions, run actions and Lua scripts in REAPER
-
-#### How To
-
-[Setup ASIO Audio Environment](/Documentation~/SetupAsioAudioEnvironment.md)
-
-[Setup ASIO Audio Sources In Scene](/Documentation~/SetupAsioAudioSourcesInScene.md)
-
-[Setup ASIO Audio Sources From Scene With Audio Sources](/Documentation~/SetupFromSceneWithAudioSources.md)
-
-[Setup OSC Environment](/Documentation~/SetupOscEnvironment.md)
+- [NAudio](https://github.com/naudio/NAudio) by Mark Heath, an open-source .NET audio library: ASIO output and audio file decoding.
+- [UnityOSC](https://t-o-f.info/UnityOSC/) by Thomas Fredericks: OSC messages.

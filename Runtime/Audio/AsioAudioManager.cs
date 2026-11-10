@@ -257,6 +257,9 @@ namespace AsioAudioUnity
         private void OnEnable()
         {
             if (_instance == this) Connect();
+#if UNITY_EDITOR
+            UnityEditor.EditorApplication.pauseStateChanged += OnEditorPauseStateChanged;
+#endif
         }
 
         private void OnDestroy()
@@ -311,8 +314,43 @@ namespace AsioAudioUnity
 
         private void OnDisable()
         {
+#if UNITY_EDITOR
+            UnityEditor.EditorApplication.pauseStateChanged -= OnEditorPauseStateChanged;
+            _sourcesPausedByEditor.Clear();
+#endif
             Disconnect();
         }
+
+#if UNITY_EDITOR
+        // The sources that were playing when the editor was paused, to resume exactly those.
+        private readonly List<AsioAudioSource> _sourcesPausedByEditor = new List<AsioAudioSource>();
+
+        // The ASIO audio runs on its own thread: the editor's Pause button doesn't stop it, so the playing sources are paused (and resumed) here.
+        private void OnEditorPauseStateChanged(UnityEditor.PauseState state)
+        {
+            if (_instance != this || !Application.isPlaying) return;
+
+            if (state == UnityEditor.PauseState.Paused)
+            {
+                if (Settings == null || !Settings.PauseWithEditor) return;
+                _sourcesPausedByEditor.Clear();
+                _sourcesPausedByEditor.AddRange(AsioAudioSources.Where(source => source && source.AudioStatus == AsioAudioStatus.Playing));
+                if (_sourcesPausedByEditor.Count == 0) return;
+
+                ForSourcesInSync(_sourcesPausedByEditor, (source, deferred) => source.Pause(deferred));
+                TransportCommandIssued?.Invoke(AsioTransportCommand.Pause);
+            }
+            else
+            {
+                AsioAudioSource[] toResume = _sourcesPausedByEditor.Where(source => source && source.AudioStatus == AsioAudioStatus.Paused).ToArray();
+                _sourcesPausedByEditor.Clear();
+                if (toResume.Length == 0) return;
+
+                ForSourcesInSync(toResume, (source, deferred) => source.Play(deferred));
+                TransportCommandIssued?.Invoke(AsioTransportCommand.Play);
+            }
+        }
+#endif
 
         private void OnApplicationQuit()
         {
@@ -602,7 +640,11 @@ namespace AsioAudioUnity
         // The sources' transport changes are deferred, then applied together by the mixer at the start of the next audio buffer.
         private void ForAllSourcesInSync(Action<AsioAudioSource, bool> action)
         {
-            AsioAudioSource[] sources = AsioAudioSources.Where(source => source).ToArray(); // a copy: event listeners may change the list
+            ForSourcesInSync(AsioAudioSources.Where(source => source).ToArray(), action); // a copy: event listeners may change the list
+        }
+
+        private void ForSourcesInSync(IList<AsioAudioSource> sources, Action<AsioAudioSource, bool> action)
+        {
             foreach (AsioAudioSource source in sources) action(source, true);
 
             if (_mixer != null)

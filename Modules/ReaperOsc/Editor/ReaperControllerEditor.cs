@@ -49,7 +49,7 @@ namespace AsioAudioUnity
             DrawCommandsCard();
 
             EditorGUILayout.BeginVertical(_cardStyle);
-            _showAddresses = EditorGUILayout.Foldout(_showAddresses, new GUIContent("OSC Addresses", "The addresses of REAPER's Default OSC pattern configuration. Change them only if your control surface uses another pattern file."), true);
+            _showAddresses = AsioEditorGUI.CardFoldout(_showAddresses, new GUIContent("OSC Addresses", "The addresses of REAPER's Default OSC pattern configuration. Change them only if your control surface uses another pattern file."), _titleStyle);
             if (_showAddresses)
             {
                 foreach (SerializedProperty child in Children(_addresses)) EditorGUILayout.PropertyField(child);

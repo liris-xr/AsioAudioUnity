@@ -162,6 +162,13 @@ namespace AsioAudioUnity
             DrawSnapshots();
 
             EditorGUILayout.Space(6f);
+            EditorGUILayout.LabelField("Editor", EditorStyles.boldLabel);
+            EditorGUILayout.PropertyField(_serializedSettings.FindProperty("_pauseWithEditor"), new GUIContent("Pause With Editor",
+                "Pausing Play mode (the editor's Pause button) also pauses the playing sources, and resuming plays them again, together. "
+                + "Applications following the transport (REAPER, with the REAPER Controller's Follow Transport) pause and resume too. "
+                + "Without it, the ASIO audio keeps playing while the editor is paused."));
+
+            EditorGUILayout.Space(6f);
             EditorGUILayout.LabelField("In-game Overlay", EditorStyles.boldLabel);
             EditorGUILayout.PropertyField(_serializedSettings.FindProperty("_displayInfoOnGameWindow"), new GUIContent("Show", "Display the ASIO status, driver settings and source controls in the Game window (also in builds)."));
             EditorGUILayout.PropertyField(_serializedSettings.FindProperty("_overlayToggleKey"), new GUIContent("Toggle Key", "Key that shows or hides the overlay at runtime (None: no key)."));

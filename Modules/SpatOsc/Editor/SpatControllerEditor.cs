@@ -61,7 +61,7 @@ namespace AsioAudioUnity
             EditorGUILayout.EndVertical();
 
             EditorGUILayout.BeginVertical(_cardStyle);
-            _showAddresses = EditorGUILayout.Foldout(_showAddresses, new GUIContent("OSC Addresses", "Spat Revolution's addresses: {0} is the source or room number."), true);
+            _showAddresses = AsioEditorGUI.CardFoldout(_showAddresses, new GUIContent("OSC Addresses", "Spat Revolution's addresses: {0} is the source or room number."), _titleStyle);
             if (_showAddresses)
             {
                 SerializedProperty addresses = serializedObject.FindProperty("_addresses");

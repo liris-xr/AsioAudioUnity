@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.0] - 2026-11-10
+
+### Added
+
+- *Pause With Editor* (*Project Settings > ASIO Audio > Editor*, `AsioAudioSettings.PauseWithEditor`, on by default): the editor's Pause button pauses the playing sources, on the same sample, and resuming plays the same sources again. Before, the ASIO audio kept playing while the editor was paused, since it runs on its own thread. The pause goes through `AsioAudioManager.TransportCommandIssued`, so REAPER follows with the REAPER Controller's *Follow Transport*. Sources that were already paused or stopped aren't affected.
+- `AsioEditorGUI.CardFoldout`: a foldable card title for custom Inspectors, used by the package's and the plugins' Inspectors.
+- Component icons for the **Spat Controller** (Spat OSC plugin, `Modules/SpatOsc/Icons`) and the **REAPER Controller** (REAPER OSC plugin, `Modules/ReaperOsc/Icons`), shown in the Inspector, the Add Component menu and the Project window.
+
+### Changed
+
+- Documentation reorganised into **tutorials** (installation, REAPER, Spat Revolution, first play, sources in your scene, positions to Spat, controlling REAPER, OSC remote, troubleshooting) and a **reference** of every component and setting, from `Documentation~/README.md`. New pages for the ASIO Audio Settings, the ASIO Audio Mixer and in-game overlay, and troubleshooting. The two ways of reaching the speakers are explained: Spat Revolution plays on the audio interface, or sends its result back to REAPER, which plays it. New screenshots of the current interface, and of the Spat Revolution Return plugin for the second workflow. The README is shorter and links to the documentation.
+- The demo scene's sound paths point to the 3.1.0 sample folder.
+
+### Fixed
+
+- Long names, output channel routes and file names overflowed the strips of the ASIO Audio Mixer: they are now shortened with an ellipsis (the full text is in the tooltip and in the channel menu).
+- The foldable cards of the Inspectors (*Advanced* and *Events* of the ASIO Audio Source, *OSC Addresses* of the Spat and REAPER Controllers) had their arrow outside the card and a different title style: they now match the other cards.
+
 ## [3.0.0] - 2026-11-10
 
 ### Changed

@@ -32,7 +32,7 @@ namespace AsioAudioUnity
 
         private AsioWaveformView _waveformView;
 
-        private static GUIStyle _cardStyle, _cardTitleStyle, _pillStyle, _dropTitleStyle, _dropHintStyle, _rightMiniLabelStyle, _transportLabelStyle, _foldoutStyle;
+        private static GUIStyle _cardStyle, _cardTitleStyle, _pillStyle, _dropTitleStyle, _dropHintStyle, _rightMiniLabelStyle, _transportLabelStyle;
 
         private static Color AccentColor => EditorGUIUtility.isProSkin ? new Color(0.35f, 0.6f, 0.95f) : new Color(0.25f, 0.5f, 0.9f);
 
@@ -564,7 +564,7 @@ namespace AsioAudioUnity
         private void DrawAdvancedCard(AsioAudioSettings settings)
         {
             BeginCard();
-            _showAdvanced = EditorGUILayout.Foldout(_showAdvanced, "Advanced", true, _foldoutStyle);
+            _showAdvanced = AsioEditorGUI.CardFoldout(_showAdvanced, new GUIContent("Advanced"), _cardTitleStyle);
             if (_showAdvanced)
             {
                 EditorGUILayout.PropertyField(_preloadIntoMemory, new GUIContent("Preload Into Memory",
@@ -595,7 +595,7 @@ namespace AsioAudioUnity
         private void DrawEventsCard()
         {
             BeginCard();
-            _showEvents = EditorGUILayout.Foldout(_showEvents, "Events", true, _foldoutStyle);
+            _showEvents = AsioEditorGUI.CardFoldout(_showEvents, new GUIContent("Events"), _cardTitleStyle);
             if (_showEvents)
             {
                 EditorGUILayout.PropertyField(_onPlay);
@@ -639,7 +639,6 @@ namespace AsioAudioUnity
             _dropHintStyle = new GUIStyle(EditorStyles.miniLabel) { clipping = TextClipping.Clip };
             _rightMiniLabelStyle = new GUIStyle(EditorStyles.miniLabel) { alignment = TextAnchor.MiddleRight };
             _transportLabelStyle = new GUIStyle(EditorStyles.label) { alignment = TextAnchor.MiddleLeft, padding = new RectOffset(0, 0, 0, 0) };
-            _foldoutStyle = new GUIStyle(EditorStyles.foldout) { fontStyle = FontStyle.Bold, fontSize = 12 };
         }
 
         private static void DrawFadeRow(SerializedProperty duration, SerializedProperty curve, GUIContent label, string curveTooltip)

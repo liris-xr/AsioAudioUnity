@@ -237,7 +237,8 @@ namespace AsioAudioUnity
             // Name (click to select)
             GUIStyle nameStyle = new GUIStyle(EditorStyles.boldLabel) { alignment = TextAnchor.MiddleCenter, clipping = TextClipping.Clip };
             if (!isActive) nameStyle.normal.textColor = AsioEditorUtility.StoppedColor;
-            if (GUILayout.Button(new GUIContent(source.name, source.name + (isActive ? "" : " (inactive)") + "\nClick to select"), nameStyle, ContentWidth))
+            string nameText = Truncate(source.name, nameStyle, StripContentWidth - nameStyle.padding.horizontal);
+            if (GUILayout.Button(new GUIContent(nameText, source.name + (isActive ? "" : " (inactive)") + "\nClick to select"), nameStyle, ContentWidth))
             {
                 Selection.activeObject = source.gameObject;
                 EditorGUIUtility.PingObject(source.gameObject);
@@ -248,9 +249,7 @@ namespace AsioAudioUnity
             AsioEditorUtility.BuildChannelOptions(source.TargetOutputChannel, outputChannelCount, allSources, new[] { source }, out GUIContent[] channelLabels, out int[] channelValues);
             Color previousColor = GUI.color;
             if (issue != AsioEditorUtility.ChannelIssue.None) GUI.color = AsioEditorUtility.ErrorColor;
-            EditorGUI.BeginChangeCheck();
-            int channel = EditorGUILayout.IntPopup(source.TargetOutputChannel, channelLabels, channelValues, EditorStyles.miniPullDown, ContentWidth);
-            if (EditorGUI.EndChangeCheck()) AsioEditorUtility.RecordChange(source, "Change Output Channel", () => source.TargetOutputChannel = channel);
+            DrawChannelDropdown(source, channelLabels, channelValues);
             GUI.color = previousColor;
             if (issue != AsioEditorUtility.ChannelIssue.None)
             {
@@ -262,7 +261,7 @@ namespace AsioAudioUnity
             bool fileMissing = string.IsNullOrEmpty(source.AudioFilePath) || !File.Exists(source.ResolvedAudioFilePath);
             GUIStyle fileStyle = new GUIStyle(EditorStyles.centeredGreyMiniLabel) { clipping = TextClipping.Clip, alignment = TextAnchor.MiddleLeft };
             if (fileMissing) fileStyle.normal.textColor = AsioEditorUtility.ErrorColor;
-            string fileText = string.IsNullOrEmpty(source.AudioFilePath) ? "No audio file" : Path.GetFileName(source.AudioFilePath);
+            string fileText = Truncate(string.IsNullOrEmpty(source.AudioFilePath) ? "No audio file" : Path.GetFileName(source.AudioFilePath), fileStyle, StripContentWidth - fileStyle.padding.horizontal);
             GUILayout.Label(new GUIContent(fileText, fileMissing && !string.IsNullOrEmpty(source.AudioFilePath) ? "File not found: " + source.AudioFilePath : source.AudioFilePath), fileStyle, ContentWidth);
 
             // Fader with its dB scale and meter (double-click: 0 dB)
@@ -316,6 +315,43 @@ namespace AsioAudioUnity
             if (EditorGUI.EndChangeCheck()) AsioEditorUtility.RecordChange(source, tooltip, () => setter(newValue));
 
             GUI.backgroundColor = previousBackground;
+        }
+
+        // The output channel as a dropdown whose text is truncated to the strip (a popup would overflow it with a long route name);
+        // the menu shows the full names.
+        private static void DrawChannelDropdown(AsioAudioSource source, GUIContent[] labels, int[] values)
+        {
+            GUIStyle style = EditorStyles.miniPullDown;
+            int selected = System.Array.IndexOf(values, source.TargetOutputChannel);
+            string fullText = selected >= 0 ? labels[selected].text : source.TargetOutputChannel.ToString();
+
+            Rect rect = GUILayoutUtility.GetRect(new GUIContent(fullText), style, ContentWidth);
+            GUIContent content = new GUIContent(Truncate(fullText, style, rect.width - style.padding.horizontal), fullText);
+            if (!EditorGUI.DropdownButton(rect, content, FocusType.Passive, style)) return;
+
+            GenericMenu menu = new GenericMenu();
+            for (int i = 0; i < labels.Length; i++)
+            {
+                int value = values[i];
+                // "/" would make a submenu
+                menu.AddItem(new GUIContent(labels[i].text.Replace("/", "∕")), value == source.TargetOutputChannel,
+                    () => AsioEditorUtility.RecordChange(source, "Change Output Channel", () => source.TargetOutputChannel = value));
+            }
+            menu.DropDown(rect);
+        }
+
+        // The text, shortened with an ellipsis to fit the width in this style.
+        private static string Truncate(string text, GUIStyle style, float width)
+        {
+            if (string.IsNullOrEmpty(text) || style.CalcSize(new GUIContent(text)).x <= width) return text;
+            int low = 0, high = text.Length;
+            while (low < high)
+            {
+                int middle = (low + high + 1) / 2;
+                if (style.CalcSize(new GUIContent(text.Substring(0, middle).TrimEnd() + "…")).x <= width) low = middle;
+                else high = middle - 1;
+            }
+            return text.Substring(0, low).TrimEnd() + "…";
         }
 
         private static GUIStyle ErrorMiniLabel()
