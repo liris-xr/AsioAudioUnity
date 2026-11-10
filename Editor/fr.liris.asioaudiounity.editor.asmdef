@@ -2,7 +2,8 @@
     "name": "AsioAudioUnity.Editor",
     "rootNamespace": "AsioAudioUnity",
     "references": [
-        "AsioAudioUnity"
+        "AsioAudioUnity",
+        "AsioAudioUnity.Osc"
     ],
     "includePlatforms": [
         "Editor"

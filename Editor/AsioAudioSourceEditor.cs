@@ -15,7 +15,6 @@ namespace AsioAudioUnity
         private static bool _showEvents;
 
         private SerializedProperty _targetOutputChannel;
-        private SerializedProperty _referencedAsioAudioManager;
         private SerializedProperty _volume;
         private SerializedProperty _mute;
         private SerializedProperty _solo;
@@ -24,6 +23,9 @@ namespace AsioAudioUnity
         private SerializedProperty _preloadIntoMemory;
         private SerializedProperty _fadeInDuration;
         private SerializedProperty _fadeOutDuration;
+        private SerializedProperty _fadeInCurve;
+        private SerializedProperty _loopCrossfade;
+        private SerializedProperty _fadeOutCurve;
         private SerializedProperty _onPlay;
         private SerializedProperty _onPause;
         private SerializedProperty _onStop;
@@ -39,7 +41,6 @@ namespace AsioAudioUnity
         private void OnEnable()
         {
             _targetOutputChannel = serializedObject.FindProperty("_targetOutputChannel");
-            _referencedAsioAudioManager = serializedObject.FindProperty("_referencedAsioAudioManager");
             _volume = serializedObject.FindProperty("_volume");
             _mute = serializedObject.FindProperty("_mute");
             _solo = serializedObject.FindProperty("_solo");
@@ -48,6 +49,9 @@ namespace AsioAudioUnity
             _preloadIntoMemory = serializedObject.FindProperty("_preloadIntoMemory");
             _fadeInDuration = serializedObject.FindProperty("_fadeInDuration");
             _fadeOutDuration = serializedObject.FindProperty("_fadeOutDuration");
+            _fadeInCurve = serializedObject.FindProperty("_fadeInCurve");
+            _loopCrossfade = serializedObject.FindProperty("_loopCrossfade");
+            _fadeOutCurve = serializedObject.FindProperty("_fadeOutCurve");
             _onPlay = serializedObject.FindProperty("_onPlay");
             _onPause = serializedObject.FindProperty("_onPause");
             _onStop = serializedObject.FindProperty("_onStop");
@@ -66,24 +70,24 @@ namespace AsioAudioUnity
         {
             EnsureStyles();
 
-            AsioAudioManager manager = AsioEditorUtility.FindManager();
+            AsioAudioSettings settings = AsioEditorUtility.Settings;
             AsioAudioSource[] allSources = AsioEditorUtility.FindAllSources();
-            int outputChannelCount = AsioEditorUtility.GetKnownOutputChannelCount(manager);
+            int outputChannelCount = AsioEditorUtility.GetKnownOutputChannelCount();
 
             // The audio file is set through the component's property (it reloads the file in Play mode), before the serialized object is read.
             DrawFileCard();
 
             serializedObject.Update();
 
-            if (manager == null)
+            if (string.IsNullOrEmpty(settings.AsioDriverName))
             {
-                EditorGUILayout.HelpBox("There is no ASIO Audio Manager in the scene: this source won't play.", MessageType.Warning);
-                if (GUILayout.Button("Create ASIO Audio Manager")) EditorApplication.ExecuteMenuItem("GameObject/AsioAudioUnity/ASIO Audio Manager");
+                EditorGUILayout.HelpBox("No ASIO driver is set for the project: this source won't play. Choose one in Project Settings > ASIO Audio.", MessageType.Warning);
+                if (GUILayout.Button("Open Project Settings > ASIO Audio")) AsioEditorUtility.OpenSettings();
             }
 
             DrawPlaybackCard();
             DrawMixCard(allSources, outputChannelCount);
-            DrawAdvancedCard(manager);
+            DrawAdvancedCard(settings);
             DrawEventsCard();
 
             serializedObject.ApplyModifiedProperties();
@@ -265,7 +269,25 @@ namespace AsioAudioUnity
                 {
                     _waveformView ??= new AsioWaveformView();
                     bool isAdvancing = previewing || (isPlaying && source.AudioStatus == AsioAudioStatus.Playing);
+
+                    // Fades drawn on the waveform, editable with their handles
+                    _waveformView.ShowFades = true;
+                    _waveformView.FadeInSeconds = _fadeInDuration.floatValue;
+                    _waveformView.FadeOutSeconds = _fadeOutDuration.floatValue;
+                    _waveformView.FadeOutAtEnd = !_loop.boolValue;
+                    _waveformView.FadeInCurve = (AsioFadeCurve)_fadeInCurve.intValue;
+                    _waveformView.FadeOutCurve = (AsioFadeCurve)_fadeOutCurve.intValue;
+                    _waveformView.LoopCrossfadeSeconds = _loop.boolValue ? _loopCrossfade.floatValue : 0f;
+
                     seekTo = _waveformView.Draw(waveform, currentSeconds, live, isAdvancing, live, live ? statusColor : AsioEditorUtility.StoppedColor);
+                    if (_waveformView.FadesChanged)
+                    {
+                        _fadeInDuration.floatValue = _waveformView.FadeInSeconds;
+                        _fadeOutDuration.floatValue = _waveformView.FadeOutSeconds;
+                        _fadeInCurve.intValue = (int)_waveformView.FadeInCurve;
+                        _fadeOutCurve.intValue = (int)_waveformView.FadeOutCurve;
+                        if (_loop.boolValue) _loopCrossfade.floatValue = _waveformView.LoopCrossfadeSeconds;
+                    }
                     if (_waveformView.NeedsRepaint && !isPlaying) Repaint();
                 }
 
@@ -318,16 +340,24 @@ namespace AsioAudioUnity
             DrawToggleButton(_playOnEnable, new GUIContent("Play On Enable", "Start playing when the component is enabled (like Play On Awake)."), AccentColor, EditorStyles.miniButtonRight);
             EditorGUILayout.EndHorizontal();
 
-            // Fades
-            EditorGUILayout.BeginHorizontal();
-            float labelWidth = EditorGUIUtility.labelWidth;
-            EditorGUIUtility.labelWidth = 56f;
-            EditorGUILayout.PropertyField(_fadeInDuration, new GUIContent("Fade In", "Fade-in duration of Play (and of resuming), in seconds. 0: a few milliseconds, just enough to avoid clicks."));
-            GUILayout.Space(8f);
-            EditorGUILayout.PropertyField(_fadeOutDuration, new GUIContent("Fade Out", "Fade-out duration of Pause and Stop, in seconds. 0: a few milliseconds, just enough to avoid clicks."));
-            EditorGUIUtility.labelWidth = labelWidth;
-            GUILayout.Label("s", EditorStyles.miniLabel, GUILayout.Width(10f));
-            EditorGUILayout.EndHorizontal();
+            // Smooth loop
+            using (new EditorGUI.DisabledScope(!_loop.boolValue))
+            {
+                EditorGUILayout.BeginHorizontal();
+                EditorGUILayout.PropertyField(_loopCrossfade, new GUIContent("Loop Crossfade", "Smooth loop: the end of the file is crossfaded with its start over this many seconds (at most half the file), "
+                    + "so the loop point can't be heard; each loop then continues from this time. 0: the file restarts directly. Only when Loop is on. Also editable with the handle at the bottom of the waveform."));
+                GUILayout.Label("s", EditorStyles.miniLabel, GUILayout.Width(10f));
+                GUILayout.Space(134f);
+                EditorGUILayout.EndHorizontal();
+            }
+
+            // Fades: duration and curve
+            const string curveTooltip = "Shape of the fade: Squared (default, gentle near silence), Linear, Inverted Squared (fast near silence), or S-Curve (gentle at both ends). "
+                + "Also editable with a right-click on the fade, on the waveform.";
+            DrawFadeRow(_fadeInDuration, _fadeInCurve, new GUIContent("Fade In", "Fade-in duration of Play (and of resuming), in seconds. 0: a few milliseconds, just enough to avoid clicks. "
+                + "Also editable with the handle on the waveform."), curveTooltip);
+            DrawFadeRow(_fadeOutDuration, _fadeOutCurve, new GUIContent("Fade Out", "Fade-out duration of Pause and Stop, and of the end of a non-looping file, in seconds. 0: a few milliseconds, just enough to avoid clicks. "
+                + "Also editable with the handle on the waveform."), curveTooltip);
 
             EndCard();
         }
@@ -487,7 +517,6 @@ namespace AsioAudioUnity
 
             Rect area = GUILayoutUtility.GetRect(0f, rows * (cellHeight + gap), GUILayout.ExpandWidth(true));
             Color previousBackground = GUI.backgroundColor;
-            AsioAudioManager manager = source.ReferencedAsioAudioManager ? source.ReferencedAsioAudioManager : AsioEditorUtility.FindManager();
 
             for (int cell = 0; cell < cellCount; cell++)
             {
@@ -498,7 +527,7 @@ namespace AsioAudioUnity
                 bool selected = channel == current && !_targetOutputChannel.hasMultipleDifferentValues;
                 bool outOfRange = outputChannelCount > 0 && channel > outputChannelCount;
 
-                string channelName = AsioEditorUtility.GetKnownOutputChannelName(manager, channel);
+                string channelName = AsioEditorUtility.GetKnownOutputChannelName(channel);
                 string tooltip = channel == 0 ? "No channel (the source won't play)"
                     : "Channel " + channel + (string.IsNullOrEmpty(channelName) ? "" : " (" + channelName + ")")
                       + (outOfRange ? " — doesn't exist on the driver" : "") + (user != null ? " — used by \"" + user.name + "\"" : "");
@@ -525,14 +554,14 @@ namespace AsioAudioUnity
             // The selected channel, with the driver's name for it
             if (current > 0 && !_targetOutputChannel.hasMultipleDifferentValues)
             {
-                string currentName = AsioEditorUtility.GetKnownOutputChannelName(manager, current);
+                string currentName = AsioEditorUtility.GetKnownOutputChannelName(current);
                 EditorGUILayout.LabelField("Output " + current + (string.IsNullOrEmpty(currentName) ? "" : "  ·  " + currentName), EditorStyles.miniLabel);
             }
         }
 
         // ---------- Advanced ----------
 
-        private void DrawAdvancedCard(AsioAudioManager manager)
+        private void DrawAdvancedCard(AsioAudioSettings settings)
         {
             BeginCard();
             _showAdvanced = EditorGUILayout.Foldout(_showAdvanced, "Advanced", true, _foldoutStyle);
@@ -540,7 +569,6 @@ namespace AsioAudioUnity
             {
                 EditorGUILayout.PropertyField(_preloadIntoMemory, new GUIContent("Preload Into Memory",
                     "Decode the whole file into memory when loading, instead of reading it from disk while playing. Avoids dropouts with many sources or slow disks, but uses about 10 MB per minute of audio and takes longer to load."));
-                EditorGUILayout.PropertyField(_referencedAsioAudioManager, new GUIContent("ASIO Audio Manager", "Leave empty to use the ASIO Audio Manager of the scene."));
 
                 AsioAudioSource[] sources = Sources;
                 if (sources.Length == 1)
@@ -554,7 +582,7 @@ namespace AsioAudioUnity
                         EditorGUILayout.LabelField("File Format", bits + (info.SampleRate / 1000f).ToString("0.#", CultureInfo.InvariantCulture) + " kHz, " + channels, EditorStyles.miniLabel);
 
                         string output = info.Channels > 1 ? "Mixed down to mono" : "Mono";
-                        if (manager != null && info.SampleRate != manager.TargetSampleRate) output += ", resampled to " + (manager.TargetSampleRate / 1000f).ToString("0.#", CultureInfo.InvariantCulture) + " kHz";
+                        if (info.SampleRate != settings.TargetSampleRate) output += ", resampled to " + (settings.TargetSampleRate / 1000f).ToString("0.#", CultureInfo.InvariantCulture) + " kHz";
                         EditorGUILayout.LabelField("Played As", output, EditorStyles.miniLabel);
                     }
                 }
@@ -612,6 +640,15 @@ namespace AsioAudioUnity
             _rightMiniLabelStyle = new GUIStyle(EditorStyles.miniLabel) { alignment = TextAnchor.MiddleRight };
             _transportLabelStyle = new GUIStyle(EditorStyles.label) { alignment = TextAnchor.MiddleLeft, padding = new RectOffset(0, 0, 0, 0) };
             _foldoutStyle = new GUIStyle(EditorStyles.foldout) { fontStyle = FontStyle.Bold, fontSize = 12 };
+        }
+
+        private static void DrawFadeRow(SerializedProperty duration, SerializedProperty curve, GUIContent label, string curveTooltip)
+        {
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.PropertyField(duration, label);
+            GUILayout.Label("s", EditorStyles.miniLabel, GUILayout.Width(10f));
+            EditorGUILayout.PropertyField(curve, new GUIContent(string.Empty, curveTooltip), GUILayout.Width(130f));
+            EditorGUILayout.EndHorizontal();
         }
     }
 }

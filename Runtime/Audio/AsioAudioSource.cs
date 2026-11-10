@@ -81,12 +81,11 @@ namespace AsioAudioUnity
             }
         }
 
-        [SerializeField] private AsioAudioManager _referencedAsioAudioManager;
-        public AsioAudioManager ReferencedAsioAudioManager
-        {
-            get { return _referencedAsioAudioManager; }
-            set { _referencedAsioAudioManager = value; }
-        }
+        // The manager this source plays through (AsioAudioManager.Instance, created automatically), once registered.
+        private AsioAudioManager _manager;
+
+        /// <summary>The ASIO Audio Manager this source plays through (null until the source is enabled in Play mode).</summary>
+        public AsioAudioManager ReferencedAsioAudioManager => _manager;
 
         private UnityEvent _onVolumeChanged;
         public UnityEvent OnVolumeChanged
@@ -187,6 +186,21 @@ namespace AsioAudioUnity
             }
         }
 
+        [SerializeField][Min(0f)] private float _loopCrossfade = 0f;
+        /// <summary>
+        /// Smooth loop: when looping, the end of the file is crossfaded with its start over this many seconds (at most half the file),
+        /// so the loop point can't be heard; each loop then continues from this time. 0: the file restarts directly.
+        /// </summary>
+        public float LoopCrossfadeDuration
+        {
+            get { return _loopCrossfade; }
+            set
+            {
+                _loopCrossfade = Mathf.Max(0f, value);
+                if (_voice != null) _voice.LoopCrossfadeSeconds = _loopCrossfade;
+            }
+        }
+
         [SerializeField][Min(0f)] private float _fadeInDuration = 0f;
         /// <summary>
         /// Fade-in duration of Play (and of resuming after a pause), in seconds. 0: a few milliseconds, just enough to avoid clicks.
@@ -203,7 +217,7 @@ namespace AsioAudioUnity
 
         [SerializeField][Min(0f)] private float _fadeOutDuration = 0f;
         /// <summary>
-        /// Fade-out duration of Pause and Stop, in seconds. 0: a few milliseconds, just enough to avoid clicks.
+        /// Fade-out duration of Pause and Stop, and of the end of a non-looping file, in seconds. 0: a few milliseconds, just enough to avoid clicks (and no fade at the end of the file).
         /// The status changes immediately; the sound fades out afterwards.
         /// </summary>
         public float FadeOutDuration
@@ -213,6 +227,30 @@ namespace AsioAudioUnity
             {
                 _fadeOutDuration = Mathf.Max(0f, value);
                 if (_voice != null) _voice.FadeOutSeconds = _fadeOutDuration;
+            }
+        }
+
+        [SerializeField] private AsioFadeCurve _fadeInCurve = AsioFadeCurve.Squared;
+        /// <summary>Shape of the fade-in (see <see cref="AsioFadeCurve"/>).</summary>
+        public AsioFadeCurve FadeInCurve
+        {
+            get { return _fadeInCurve; }
+            set
+            {
+                _fadeInCurve = value;
+                if (_voice != null) _voice.FadeInCurve = value;
+            }
+        }
+
+        [SerializeField] private AsioFadeCurve _fadeOutCurve = AsioFadeCurve.Squared;
+        /// <summary>Shape of the fade-out, of Pause and Stop and at the end of a non-looping file (see <see cref="AsioFadeCurve"/>).</summary>
+        public AsioFadeCurve FadeOutCurve
+        {
+            get { return _fadeOutCurve; }
+            set
+            {
+                _fadeOutCurve = value;
+                if (_voice != null) _voice.FadeOutCurve = value;
             }
         }
 
@@ -389,6 +427,9 @@ namespace AsioAudioUnity
             _voice.Loop = _loop;
             _voice.FadeInSeconds = _fadeInDuration;
             _voice.FadeOutSeconds = _fadeOutDuration;
+            _voice.FadeInCurve = _fadeInCurve;
+            _voice.FadeOutCurve = _fadeOutCurve;
+            _voice.LoopCrossfadeSeconds = _loopCrossfade;
 
             // Revalidating the channel logs errors and changes the manager's list: deferred to Update rather than done during validation.
             if (_voice.OutputChannel != _targetOutputChannel) _outputChannelEditedInInspector = true;
@@ -400,13 +441,14 @@ namespace AsioAudioUnity
         /// </summary>
         private bool Revalidate(bool reloadAudioFile)
         {
-            AsioAudioManager asioAudioManager = ReferencedAsioAudioManager ? ReferencedAsioAudioManager : FindFirstObjectByType<AsioAudioManager>();
+            AsioAudioManager asioAudioManager = AsioAudioManager.Instance; // created if needed
             if (!asioAudioManager)
             {
-                UnityEngine.Debug.LogError("The ASIO Audio Source attached to GameObject \"" + gameObject.name + "\" can't find any ASIO Audio Manager in the scene. It will be ignored.");
+                UnityEngine.Debug.LogError("The ASIO Audio Source attached to GameObject \"" + gameObject.name + "\" can't start the ASIO Audio Manager (sources only play in Play mode or in a build). It will be ignored.");
                 return false;
             }
 
+            _manager = asioAudioManager;
             if (!asioAudioManager.RequestAddAsioAudioSource(this))
             {
                 if (AudioStatus != AsioAudioStatus.Stopped) Stop();
@@ -417,6 +459,9 @@ namespace AsioAudioUnity
             _voice.Loop = _loop;
             _voice.FadeInSeconds = _fadeInDuration;
             _voice.FadeOutSeconds = _fadeOutDuration;
+            _voice.FadeInCurve = _fadeInCurve;
+            _voice.FadeOutCurve = _fadeOutCurve;
+            _voice.LoopCrossfadeSeconds = _loopCrossfade;
             _voice.OutputChannel = _targetOutputChannel;
 
             if (reloadAudioFile || !_voice.IsLoaded) return LoadAudioFile();
@@ -436,7 +481,7 @@ namespace AsioAudioUnity
 
             try
             {
-                _voice.Load(resolvedAudioFilePath, ReferencedAsioAudioManager.TargetSampleRate, PreloadIntoMemory, keepPosition);
+                _voice.Load(resolvedAudioFilePath, _manager.TargetSampleRate, PreloadIntoMemory, keepPosition);
             }
             catch (Exception e)
             {
@@ -494,13 +539,13 @@ namespace AsioAudioUnity
         {
             if (AudioStatus == AsioAudioStatus.Playing) return;
 
-            if (_voice == null || !_voice.IsLoaded || ReferencedAsioAudioManager == null)
+            if (_voice == null || !_voice.IsLoaded || _manager == null)
             {
                 UnityEngine.Debug.LogError("The ASIO Audio Source attached to GameObject \"" + gameObject.name + "\" can't play: it has no valid audio file or ASIO Audio Manager (see previous errors).");
                 return;
             }
 
-            if (!ReferencedAsioAudioManager.IsConnected)
+            if (!_manager.IsConnected)
             {
                 UnityEngine.Debug.LogWarning("The ASIO Audio Source attached to GameObject \"" + gameObject.name + "\" is playing, but the ASIO driver is not connected: it will be heard once the ASIO Audio Manager connects.");
             }
@@ -576,7 +621,8 @@ namespace AsioAudioUnity
         private void OnDisable()
         {
             Stop();
-            if (ReferencedAsioAudioManager) ReferencedAsioAudioManager.RequestRemoveAsioAudioSource(this);
+            if (_manager) _manager.RequestRemoveAsioAudioSource(this);
+            _manager = null;
             _voice?.Unload();
         }
 

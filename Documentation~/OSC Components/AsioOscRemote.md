@@ -1,5 +1,7 @@
 ## AsioOscRemote
 
+> Part of the shared OSC library (`Runtime/Osc`, assembly `AsioAudioUnity.Osc`). To control REAPER *from* Unity, see the [REAPER Controller](/Documentation~/REAPER%20OSC/ReaperController.md) (REAPER OSC plugin).
+
 The `AsioOscRemote` component lets another application control the [AsioAudioManager](/Documentation~/Audio%20Components/AsioAudioManager.md) and its [AsioAudioSource](/Documentation~/Audio%20Components/AsioAudioSource.md) components with OSC messages: REAPER, Spat Revolution, TouchOSC, Max, Pure Data, a lighting desk...
 
 It listens to the messages received by the OSC Manager (the `OSC` component), on its `InPort`.
@@ -7,10 +9,10 @@ It listens to the messages received by the OSC Manager (the `OSC` component), on
 ### Setup
 
 1. Make sure the scene has an OSC Manager (*GameObject > AsioAudioUnity > OSC Manager*), and note its `InPort` (8101 in the demo scene).
-2. Add the component to any GameObject: *Add Component > AsioAudioUnity > ASIO OSC Remote* (for example on the ASIO Audio Manager).
+2. Add the component to any GameObject: *Add Component > AsioAudioUnity > ASIO OSC Remote* (for example on the OSC Manager).
 3. Send the messages below to the computer running Unity, on the OSC Manager's `InPort`.
 
-`Osc` and `AsioAudioManager` are found in the scene when left empty.
+`Osc` is found in the scene when left empty. The commands go to the [ASIO Audio Manager](/Documentation~/Audio%20Components/AsioAudioManager.md), created automatically.
 
 ### Messages
 
@@ -39,7 +41,6 @@ Numbers can be sent as int, float or string. Messages starting with the prefix t
 | **Property** | **Description** |
 |-|-|
 | `Osc` | The OSC Manager receiving the messages (found in the scene if empty). |
-| `AsioAudioManager` | The ASIO Audio Manager to control (found in the scene if empty). |
 | `AddressPrefix` | The start of the addresses this component answers to (default: `/asio`). |
 | `LogMessages` | Logs every message handled. |
 

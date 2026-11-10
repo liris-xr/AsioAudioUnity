@@ -28,14 +28,6 @@ namespace AsioAudioUnity
             set { Unsubscribe(); _osc = value; if (isActiveAndEnabled) Subscribe(); }
         }
 
-        [SerializeField] private AsioAudioManager _asioAudioManager;
-        /// <summary>The ASIO Audio Manager to control (found in the scene if empty).</summary>
-        public AsioAudioManager AsioAudioManager
-        {
-            get { return _asioAudioManager; }
-            set { _asioAudioManager = value; }
-        }
-
         [SerializeField] private string _addressPrefix = "/asio";
         /// <summary>The start of the addresses this component answers to (default: "/asio").</summary>
         public string AddressPrefix
@@ -57,7 +49,6 @@ namespace AsioAudioUnity
         private void OnEnable()
         {
             if (_osc == null) _osc = FindFirstObjectByType<OSC>();
-            if (_asioAudioManager == null) _asioAudioManager = FindFirstObjectByType<AsioAudioManager>();
             if (_osc == null) Debug.LogError("ASIO OSC Remote on \"" + name + "\": there is no OSC Manager in the scene, no message will be received.");
             Subscribe();
         }
@@ -86,47 +77,48 @@ namespace AsioAudioUnity
         {
             string prefix = string.IsNullOrEmpty(_addressPrefix) ? "" : "/" + _addressPrefix.Trim('/');
             if (message?.address == null || !message.address.StartsWith(prefix + "/", StringComparison.OrdinalIgnoreCase)) return;
-            if (_asioAudioManager == null) return;
+            AsioAudioManager manager = AsioAudioManager.Instance;
+            if (manager == null) return;
 
             string[] parts = message.address.Substring(prefix.Length + 1).Split('/');
             bool handled = parts.Length >= 2 && parts[0].Equals("source", StringComparison.OrdinalIgnoreCase)
-                ? HandleSourceMessage(parts, message)
-                : HandleGlobalMessage(parts, message);
+                ? HandleSourceMessage(manager, parts, message)
+                : HandleGlobalMessage(manager, parts, message);
 
             if (_logMessages || !handled) Debug.Log("ASIO OSC Remote: " + (handled ? "" : "message not understood: ") + message);
         }
 
-        private bool HandleGlobalMessage(string[] parts, OscMessage message)
+        private bool HandleGlobalMessage(AsioAudioManager manager, string[] parts, OscMessage message)
         {
             string command = string.Join("/", parts).ToLowerInvariant();
             switch (command)
             {
-                case "play": _asioAudioManager.PlayAll(); return true;
-                case "pause": _asioAudioManager.PauseAll(); return true;
-                case "stop": _asioAudioManager.StopAll(); return true;
-                case "restart": _asioAudioManager.RestartAll(); return true;
+                case "play": manager.PlayAll(); return true;
+                case "pause": manager.PauseAll(); return true;
+                case "stop": manager.StopAll(); return true;
+                case "restart": manager.RestartAll(); return true;
 
                 case "master/volume":
                     if (!TryGetFloat(message, 0, out float decibels)) return false;
-                    _asioAudioManager.MasterVolumeDecibels = Mathf.Min(0f, decibels);
+                    manager.MasterVolumeDecibels = Mathf.Min(0f, decibels);
                     return true;
 
                 case "snapshot":
                     if (message.values.Count == 0) return false;
                     object value = message.values[0];
-                    if (value is string snapshotName) return _asioAudioManager.RecallSnapshot(snapshotName);
-                    return TryGetFloat(message, 0, out float index) && _asioAudioManager.RecallSnapshot(Mathf.RoundToInt(index));
+                    if (value is string snapshotName) return manager.RecallSnapshot(snapshotName);
+                    return TryGetFloat(message, 0, out float index) && manager.RecallSnapshot(Mathf.RoundToInt(index));
 
                 default:
                     return false;
             }
         }
 
-        private bool HandleSourceMessage(string[] parts, OscMessage message)
+        private bool HandleSourceMessage(AsioAudioManager manager, string[] parts, OscMessage message)
         {
             if (parts.Length != 3 || !int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out int channel)) return false;
 
-            AsioAudioSource source = _asioAudioManager.AsioAudioSources.Find(other => other && other.TargetOutputChannel == channel);
+            AsioAudioSource source = manager.AsioAudioSources.Find(other => other && other.TargetOutputChannel == channel);
             if (source == null) return false;
 
             switch (parts[2].ToLowerInvariant())

@@ -11,27 +11,25 @@ For example, Spat Revolution has controls for sources and room to set properties
 `"/room/(k)/xyz", [x,y,z]`
 Where k is the index of the source or room and x,y,z to coordinates to set. 
 
-For more information on OSC components, see [RoomPositionOsc](/Documentation~/OSC%20Components/RoomPositionOsc.md) and [SourcePositionOsc](/Documentation~/OSC%20Components/SourcePositionOsc.md).
+Sending positions to Spat Revolution is the **Spat OSC plugin** (`Modules/SpatOsc`, assembly `AsioAudioUnity.SpatOsc`), with the [Spat Controller](/Documentation~/Spat%20OSC/SpatController.md). It uses the shared OSC library of the package (`Runtime/Osc`, assembly `AsioAudioUnity.Osc`), which also has the OSC Manager and the [AsioOscRemote](/Documentation~/OSC%20Components/AsioOscRemote.md) to control Unity from other applications. The [REAPER OSC plugin](/Documentation~/REAPER%20OSC/ReaperController.md) uses the same library to control REAPER.
 
-### Creating the OSC Manager
+### Sending positions with the Spat Controller
 
-**Before adding any OSC position component (that will send realtime position through OSC protocol), please verify that an `OSC` component is already in scene.**
+The [Spat Controller](/Documentation~/Spat%20OSC/SpatController.md) sends the positions of all the ASIO Audio Sources (and rooms) to Spat Revolution from a single component, without an OSC Manager:
 
-To add an `OSC` component on scene, you can go multiple ways:
+1. *GameObject > AsioAudioUnity > Spat Controller* (or drag the `Spat Controller` prefab, in `Modules/SpatOsc/Runtime/Prefabs`).
+2. Check Spat Revolution's **Address** and **Port** (127.0.0.1 and 8100 with the setup above).
+3. Keep **Track All ASIO Sources** ticked: each source is sent as the Spat source numbered like its output channel (the REAPER track / Spat input it arrives on), or with another number set in the *Sent to Spat* table.
+4. Add rooms in **Other Objects** (type *Room*), and click **Send Positions Now** to check that Spat receives them.
 
-1. Use prefab: A prefab named `OSC Manager` is present on the `Packages` folder, at `Packages/Asio Audio Unity/Runtime/Prefabs/OSC Manager.prefab`, you can simply drag and drop this prefab on scene.
-2. Setup GameObject: You can add a GameObject with an `OSC` component on scene by going to *GameObject > AsioAudioUnity > OSC Manager*.
+The demo scene has a Spat Controller tracking its four sources, and the Main Camera as room 1.
 
-Once the `OSC` component is put in scene, you can set the `InPort`, `OutIP` and `OutPort` properties.
+### Receiving OSC: the OSC Manager
 
-### Setup OSC Position
+The OSC Manager (`OSC` component) receives OSC messages, for the [ASIO OSC Remote](/Documentation~/OSC%20Components/AsioOscRemote.md) (to control playback, volumes and snapshots from TouchOSC, REAPER, etc.). It isn't needed to send positions or to control REAPER.
 
-If you don't have any [AsioAudioSource](/Documentation~/Audio%20Components/AsioAudioSource.md) component on scene, you can either refer to [Setup ASIO Audio Sources In Scene](/Documentation~/SetupAsioAudioSourcesInScene.md) section and follow next instructions, or you can go to *GameObject > AsioAudioUnity > ASIO Audio Source (with OSC Position)*.
-> For the [AsioAudioSource](/Documentation~/Audio%20Components/AsioAudioSource.md) component properties, go to the [AsioAudioSource Properties Setup](/Documentation~/Audio%20Components/AsioAudioSource.md#properties-setup) section.
+To add one: *GameObject > AsioAudioUnity > OSC Manager*, or drag the `OSC Manager` prefab (`Runtime/Osc/Prefabs`). Set its `InPort` to the port the messages are sent to.
 
-If there is already a [AsioAudioSource](/Documentation~/Audio%20Components/AsioAudioSource.md) component on scene and you want to attach an OSC position component, you can go multiple ways:
+### Obsolete: per-object position components
 
-1. From the Inspector tab: Select the GameObject that contains the [AsioAudioSource](/Documentation~/Audio%20Components/AsioAudioSource.md), go to the Inspector tab, click on Add Component, and add either a [RoomPositionOsc](/Documentation~/OSC%20Components/RoomPositionOsc.md) (if you want to track a room in Spat Revolution), or a [SourcePositionOsc](/Documentation~/OSC%20Components/SourcePositionOsc.md) (if you want to track an audio source). You will have to manually set the properties (`Osc` and `RoomIndex` or `SourceIndex`).
-2. From Unity menu: 
-    - For each [AsioAudioSource](/Documentation~/Audio%20Components/AsioAudioSource.md) component: Select the GameObject that contains the [AsioAudioSource](/Documentation~/Audio%20Components/AsioAudioSource.md), and go to *AsioAudioUnity > Add Source Position OSC to selected ASIO Audio Source(s)* to add a [SourcePositionOsc](/Documentation~/OSC%20Components/SourcePositionOsc.md). The properties should already be set.
-    - For all [AsioAudioSource](/Documentation~/Audio%20Components/AsioAudioSource.md) components: Go to *AsioAudioUnity > Add Source Position OSC to all ASIO Audio Sources* to add a [SourcePositionOsc](/Documentation~/OSC%20Components/SourcePositionOsc.md) to all GameObjects that contains a [AsioAudioSource](/Documentation~/Audio%20Components/AsioAudioSource.md) component. The properties should already be set.
+Before version 3.0, positions were sent by a [SourcePositionOsc](/Documentation~/Spat%20OSC/SourcePositionOsc.md) or [RoomPositionOsc](/Documentation~/Spat%20OSC/RoomPositionOsc.md) component on each object, through an OSC Manager. They are obsolete: they still work in existing scenes, but can no longer be added from the menus. Their Inspector has a **Replace with Spat Controller** button, which moves them to the scene's Spat Controller (created if needed): a room becomes one of its *Other Objects*, and an ASIO Audio Source keeps its Spat number. Then remove the OSC Manager if nothing else uses it.

@@ -7,7 +7,7 @@ using UnityEngine;
 namespace AsioAudioUnity
 {
     /// <summary>
-    /// Plays an ASIO Audio Source in Edit mode (without entering Play mode), on its output channel, through the ASIO Audio Manager's driver,
+    /// Plays an ASIO Audio Source in Edit mode (without entering Play mode), on its output channel, through the project's ASIO driver (ASIO Audio Settings),
     /// at the source's volume and the master volume. One source at a time. Stopped before entering Play mode and before scripts reload.
     /// </summary>
     [InitializeOnLoad]
@@ -16,7 +16,7 @@ namespace AsioAudioUnity
         private static AsioOut _asioOut;
         private static AsioMixer _mixer;
         private static AsioSourceVoice _voice;
-        private static AsioAudioManager _manager;
+        private static AsioAudioSettings _settings;
         private static double _lastUpdateTime;
 
         /// <summary>The source being previewed, or null.</summary>
@@ -31,6 +31,9 @@ namespace AsioAudioUnity
 
         public static bool IsPreviewing(AsioAudioSource source) => source != null && Source == source && _voice != null;
 
+        /// <summary>The driver used by the running preview, or null.</summary>
+        public static AsioOut Driver => _asioOut;
+
         static AsioEditorPreview()
         {
             // The driver is needed by the ASIO Audio Manager in Play mode, and the engine objects don't survive a script reload.
@@ -42,18 +45,19 @@ namespace AsioAudioUnity
         public static bool Start(AsioAudioSource source)
         {
             Stop();
+            AsioDriverControlPanel.Release(); // A driver can only be loaded once
             LastError = null;
 
-            AsioAudioManager manager = source.ReferencedAsioAudioManager ? source.ReferencedAsioAudioManager : AsioEditorUtility.FindManager();
-            if (manager == null) return Fail("there is no ASIO Audio Manager in the scene.");
-            if (string.IsNullOrEmpty(manager.AsioDriverName)) return Fail("no ASIO driver is set on the ASIO Audio Manager.");
+            AsioAudioSettings settings = AsioEditorUtility.Settings;
+            if (string.IsNullOrEmpty(settings.AsioDriverName)) return Fail("no ASIO driver is set (Project Settings > ASIO Audio).");
 
             string path = source.ResolvedAudioFilePath;
             if (string.IsNullOrEmpty(path) || !File.Exists(path)) return Fail("the audio file was not found.");
 
             try
             {
-                _asioOut = new AsioOut(manager.AsioDriverName);
+                _asioOut = new AsioOut(settings.AsioDriverName);
+                AsioDriverControlPanel.RememberDriverInfo(_asioOut, settings.AsioDriverName);
                 int channelCount = _asioOut.DriverOutputChannelCount;
                 if (source.TargetOutputChannel < 1 || source.TargetOutputChannel > channelCount)
                 {
@@ -61,12 +65,12 @@ namespace AsioAudioUnity
                 }
 
                 _voice = new AsioSourceVoice();
-                _voice.Load(path, manager.TargetSampleRate, false);
-                _manager = manager;
+                _voice.Load(path, settings.TargetSampleRate, false);
+                _settings = settings;
                 Source = source;
                 ApplySettings();
 
-                _mixer = new AsioMixer(manager.TargetSampleRate, channelCount) { MasterVolume = manager.MasterVolume };
+                _mixer = new AsioMixer(settings.TargetSampleRate, channelCount) { MasterVolume = settings.MasterVolume };
                 _mixer.AddVoice(_voice);
                 _asioOut.Init(_mixer.ToWaveProvider()); // 32-bit float: NAudio converts it to any driver format
                 _asioOut.Play();
@@ -79,7 +83,7 @@ namespace AsioAudioUnity
             catch (Exception e)
             {
                 Stop();
-                return Fail("could not use the ASIO driver \"" + manager.AsioDriverName + "\" at " + manager.TargetSampleRate + " Hz: " + e.GetBaseException().Message);
+                return Fail("could not use the ASIO driver \"" + settings.AsioDriverName + "\" at " + settings.TargetSampleRate + " Hz: " + e.GetBaseException().Message);
             }
         }
 
@@ -101,7 +105,7 @@ namespace AsioAudioUnity
             _voice?.Dispose();
             _voice = null;
             _mixer = null;
-            _manager = null;
+            _settings = null;
             Source = null;
             MeterLevel = 0f;
         }
@@ -114,7 +118,7 @@ namespace AsioAudioUnity
 
         private static void Update()
         {
-            if (Source == null || _voice == null || _manager == null)
+            if (Source == null || _voice == null || _settings == null)
             {
                 Stop();
                 return;
@@ -143,7 +147,7 @@ namespace AsioAudioUnity
             _voice.OutputChannel = Source.TargetOutputChannel;
             _voice.FadeInSeconds = Source.FadeInDuration;
             _voice.FadeOutSeconds = Source.FadeOutDuration;
-            if (_mixer != null) _mixer.MasterVolume = _manager.MasterVolume;
+            if (_mixer != null) _mixer.MasterVolume = _settings.MasterVolume;
         }
     }
 }

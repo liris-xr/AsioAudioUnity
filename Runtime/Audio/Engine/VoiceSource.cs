@@ -15,6 +15,21 @@ namespace AsioAudioUnity
         public abstract int Read(float[] buffer, int offset, int count);
         public virtual void Dispose() { }
 
+        /// <summary>
+        /// Returns the first frames of the file (mono, at the file's sample rate), without moving the playback position:
+        /// used to crossfade the end of the file with its start when looping. Can be called from any thread.
+        /// </summary>
+        public abstract float[] ReadHead(int frames);
+
+        protected static float[] ReadAll(ISampleProvider mono, int frames)
+        {
+            float[] head = new float[Math.Max(0, frames)];
+            int total = 0, read;
+            while (total < head.Length && (read = mono.Read(head, total, head.Length - total)) > 0) total += read;
+            if (total < head.Length) Array.Resize(ref head, total);
+            return head;
+        }
+
         public TimeSpan TotalTime => TimeSpan.FromSeconds(Length / (double)WaveFormat.SampleRate);
 
         /// <summary>Opens an audio file, either streamed from disk or fully decoded into memory.</summary>
@@ -23,7 +38,7 @@ namespace AsioAudioUnity
             AudioFileReader reader = new AudioFileReader(audioFilePath);
             decodedFileWaveFormat = reader.WaveFormat;
 
-            if (!preloadIntoMemory) return new StreamingVoiceSource(reader);
+            if (!preloadIntoMemory) return new StreamingVoiceSource(reader, audioFilePath);
 
             try
             {
@@ -42,10 +57,12 @@ namespace AsioAudioUnity
         private readonly AudioFileReader _reader;
         private readonly ISampleProvider _mono;
         private readonly int _blockAlign;
+        private readonly string _path;
 
-        public StreamingVoiceSource(AudioFileReader reader)
+        public StreamingVoiceSource(AudioFileReader reader, string path)
         {
             _reader = reader;
+            _path = path;
             _mono = reader.WaveFormat.Channels == 1 ? (ISampleProvider)reader : new MonoDownmixSampleProvider(reader);
             _blockAlign = reader.WaveFormat.BlockAlign;
         }
@@ -59,6 +76,16 @@ namespace AsioAudioUnity
         }
 
         public override int Read(float[] buffer, int offset, int count) => _mono.Read(buffer, offset, count);
+
+        // Decoded from a second reader, so the playing one isn't disturbed (the same decoder gives the same samples).
+        public override float[] ReadHead(int frames)
+        {
+            using (AudioFileReader reader = new AudioFileReader(_path))
+            {
+                ISampleProvider mono = reader.WaveFormat.Channels == 1 ? (ISampleProvider)reader : new MonoDownmixSampleProvider(reader);
+                return ReadAll(mono, frames);
+            }
+        }
 
         public override void Dispose() => _reader.Dispose();
     }
@@ -100,6 +127,13 @@ namespace AsioAudioUnity
             Array.Copy(_samples, _position, buffer, offset, available);
             _position += available;
             return available;
+        }
+
+        public override float[] ReadHead(int frames)
+        {
+            float[] head = new float[Math.Max(0, Math.Min(frames, _samples.Length))];
+            Array.Copy(_samples, head, head.Length);
+            return head;
         }
     }
 }

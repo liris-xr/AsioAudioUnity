@@ -1,4 +1,8 @@
-## SourcePositionOsc
+## SourcePositionOsc (obsolete)
+
+> Part of the **Spat OSC plugin** (`Modules/SpatOsc`, assembly `AsioAudioUnity.SpatOsc`): sends positions to Spat Revolution through the scene's OSC Manager.
+>
+> **Obsolete since version 3.0:** replaced by the [Spat Controller](/Documentation~/Spat%20OSC/SpatController.md), which tracks every ASIO Audio Source automatically (numbered by output channel), and rooms, from one component, without an OSC Manager. Existing components still work, but can no longer be added from the menus. Their Inspector has a **Replace with Spat Controller** button.
 
 The `SourcePositionOsc` component is a specialized OSC (Open Sound Control) object designed to represent and synchronize the position of a "source" entity over OSC messages. It inherits from `ObjectPositionOsc`.
 

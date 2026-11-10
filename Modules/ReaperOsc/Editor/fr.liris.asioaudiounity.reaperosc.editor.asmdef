@@ -1,0 +1,21 @@
+{
+    "name": "AsioAudioUnity.ReaperOsc.Editor",
+    "rootNamespace": "AsioAudioUnity",
+    "references": [
+        "AsioAudioUnity",
+        "AsioAudioUnity.Editor",
+        "AsioAudioUnity.Osc",
+        "AsioAudioUnity.ReaperOsc"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

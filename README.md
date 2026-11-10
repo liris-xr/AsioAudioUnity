@@ -132,9 +132,11 @@ Once REAPER and Spat Revolution are set, we will open the package on a Unity pro
 
 - Import the Asio Audio Unity Package to the project (see [How to install](#how-to-install)), import the demo scene (see [Demo Scene](#demo-scene)) and open it.
 
+- Open *Edit > Project Settings > ASIO Audio*, click *Create ASIO Audio Settings* (the first time), choose the **ReaRoute ASIO** driver and the same **Sample Rate** as REAPER (see [Setup ASIO Audio Environment](/Documentation~/SetupAsioAudioEnvironment.md)).
+
 - Identify the ASIO Audio Sources on the Scene, and pick one. On the Inspector tab, select the component [AsioAudioSource](/Documentation~/Audio%20Components/AsioAudioSource.md) and verify that `PlayOnEnable` is set to `true`.
 
-- Identify the OSC Manager object on the Scene, and verify on the `OSC` component that the `OutIP` and `OutPort` properties match the ones set on Spat Revolution (respectively by default 127.0.0.1 and 8100).
+- Identify the Spat Controller object on the Scene (under *-- Managers --*), and verify that its **Address** and **Port** match the ones set on Spat Revolution (respectively by default 127.0.0.1 and 8100).
 
 - Click Play, and see if audio data is transmitted to REAPER. The REAPER track that should get data is the one identified with the `TargetOutputChannel` on the [AsioAudioSource](/Documentation~/Audio%20Components/AsioAudioSource.md) component, which will point to the corresponding ReaRoute input. 
 	> Example: On Unity, if a [AsioAudioSource](/Documentation~/Audio%20Components/AsioAudioSource.md) has its `PlayOnEnable` property ticked, and its `TargetOutputChannel` property set to 3, the REAPER track identified by input ReaRoute 3 should get the data when playing the scene.
@@ -147,17 +149,30 @@ The full Documentation is available [here](/Documentation~).
 
 #### Audio Components
 
-[AsioAudioManager](/Documentation~/Audio%20Components/AsioAudioManager.md)
+[ASIO Audio Settings and AsioAudioManager](/Documentation~/Audio%20Components/AsioAudioManager.md): Project Settings > ASIO Audio, and the manager created automatically
 
 [AsioAudioSource](/Documentation~/Audio%20Components/AsioAudioSource.md)
 
-#### OSC Components
+#### Plugins
+
+The package has two optional plugins, built in (nothing to import), each in its own assemblies. The core doesn't depend on them, and they don't depend on each other: both use the package's shared OSC library (`Runtime/Osc`, which also has the OSC Manager and the [OSC remote](/Documentation~/OSC%20Components/AsioOscRemote.md) to receive OSC).
+
+- **Spat OSC** (`Modules/SpatOsc`): sends the positions of sources and rooms to Spat Revolution, with the Spat Controller.
+- **REAPER OSC** (`Modules/ReaperOsc`): controls REAPER from Unity: follows Unity's transport, plays regions, runs actions and Lua scripts on Unity events.
+
+#### OSC (shared library)
 
 [AsioOscRemote](/Documentation~/OSC%20Components/AsioOscRemote.md): control playback, volumes and snapshots over OSC
 
-[RoomPositionOsc](/Documentation~/OSC%20Components/RoomPositionOsc.md)
+#### Spat OSC (plugin)
 
-[SourcePositionOsc](/Documentation~/OSC%20Components/SourcePositionOsc.md)
+[SpatController](/Documentation~/Spat%20OSC/SpatController.md): sends the positions of all the ASIO Audio Sources and rooms to Spat Revolution
+
+[RoomPositionOsc](/Documentation~/Spat%20OSC/RoomPositionOsc.md) and [SourcePositionOsc](/Documentation~/Spat%20OSC/SourcePositionOsc.md): obsolete, replaced by the Spat Controller
+
+#### REAPER OSC (plugin)
+
+[ReaperController](/Documentation~/REAPER%20OSC/ReaperController.md): follow Unity's transport, play regions, run actions and Lua scripts in REAPER
 
 #### How To
 

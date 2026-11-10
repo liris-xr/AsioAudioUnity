@@ -1,57 +1,84 @@
-## AsioAudioManager
+## ASIO Audio Settings and AsioAudioManager
 
-The AsioAudioManager compenent is designed to manage audio playback using the NAudio library and an ASIO driver. It acts as a central controller for multiple [AsioAudioSource](/Documentation~/Audio%20Components/AsioAudioSource.md) components, handling ASIO driver initialization, audio source validation, and playback coordination.
+Since version 3.0, there is **no manager to add to the scene**: the ASIO settings are project settings, and the manager that plays the sources is created automatically.
 
-### Typical Workflow and Features
+### Project Settings > ASIO Audio
 
-1.	Driver Connection: The Asio Audio Manager connects to the ASIO driver set in `AsioDriverName` when it is enabled, and stays connected until it is disabled, using all the driver's output channels (`AsioDriverOutputChannelCount`). Connection errors (driver not found, unsupported sample rate...) are logged in the console, along with the list of available drivers. Changing `AsioDriverName`, `TargetSampleRate` or `TargetBitsPerSample` at runtime (from code, the Inspector or the Game window overlay) reconnects the driver; sources keep their state and position.
-2.	Audio Source Coordination:
-    •	Audio Source Management: Validates, adds, and removes [AsioAudioSource](/Documentation~/Audio%20Components/AsioAudioSource.md) components.
-    •	Real-time Mixing: Continuously mixes all registered sources (each one on its own output channel) into the stream sent to the ASIO driver. Sources can be played, paused, stopped, or have their volume, loop or channel changed without interrupting the driver.
-3.	Inspector: The driver is picked from the list of ASIO drivers installed on the machine, and the sample rate and format from dropdowns. In Play mode, the Inspector shows the connection status, with buttons to reconnect and to open the driver's own control panel. The *Output Channels* section lists every source of the scene with its channel, status and file, highlights channel conflicts (with a *Fix* button that assigns free channels), and opens the ASIO Mixer window.
-4.	Synchronised transport: `PlayAll`, `PauseAll`, `StopAll` and `RestartAll` change the state of all sources **on the same sample**, so files that belong together (e.g. the stems of a multichannel mix) stay perfectly in sync. They are also on the *Master* strip of the ASIO Mixer, and available over OSC (see [AsioOscRemote](/Documentation~/OSC%20Components/AsioOscRemote.md)).
-5.	Snapshots: the *Snapshots* section of the Inspector (and the *Snapshots* menu of the ASIO Mixer) saves the current mix (master volume, and the volume, mute and solo of every source) and recalls it later. Snapshots are stored in the scene, with the manager, and can be recalled from code (`RecallSnapshot`) or over OSC.
-6.	In-game Overlay: A draggable window in the Game view (and in builds), shown or hidden with a key (`OverlayToggleKey`, F9 by default). It shows the connection status, lets you change the driver, sample rate and format (*Settings*), and lists every source with play / pause / stop, mute / solo, volume, a level meter and a position bar (click it to seek). `OverlayScale` makes it bigger on high-resolution screens.
+Open *Edit > Project Settings > ASIO Audio* (or *AsioAudioUnity > Project Settings…*). The first time, click **Create ASIO Audio Settings**: an asset is created at `Assets/Settings/ASIO Audio Settings.asset`, used by every scene, and included in builds (it is added to the Player Settings' *Preloaded Assets*).
+
+| **Section** | **Settings** |
+|-|-|
+| Status | In Play mode: connection status, number of outputs and sources, *Reconnect*, and *Driver Control Panel* (the driver's own settings: buffer size, clock...). In Edit mode: *Driver Control Panel* too: the driver is loaded for it, which also reads its number of outputs (*Driver Outputs*), channel names and sample format (*Driver Format*), reloaded on each click, and released with *Release Driver*, when leaving the page, entering Play mode or starting a preview. While it is loaded, other applications may not be able to use an exclusive driver. |
+| ASIO Driver | **Driver** (from the ASIO drivers installed on the machine), **Sample Rate** (must be supported by the driver; audio files are resampled to it), **Sample Format** (16-bit integer or 32-bit float), and the **Driver Format** the driver actually works with (e.g. 24-bit integer, remembered from the last connection). Changing them in Play mode reconnects the driver. |
+| Master | **Master Volume**, in dB, applied to all sources after their own volume, with the level sent to the driver in Play mode. |
+| Snapshots | Saved mixes: the master volume, and the volume, mute and solo of every source, **identified by output channel** (so a snapshot works in every scene). *Save Current Mix*, *Recall*, *Update*, delete, and rename. |
+| In-game Overlay | **Show**, **Toggle Key** (F9 by default), **Scale**. |
+| Output Channels | The sources of the open scene with their channel, status and file, channel conflicts (with *Fix*), and *Open Mixer*. |
+
+> Changes made at runtime (from the overlay, the ASIO Audio Mixer, code or OSC) are made to the settings asset, so in the Editor they are kept after Play mode, like any asset edited in Play mode.
+
+### The ASIO Audio Manager
+
+When the first [AsioAudioSource](/Documentation~/Audio%20Components/AsioAudioSource.md) is enabled (in Play mode or in a build), the **ASIO Audio Manager** is created (`AsioAudioManager.Instance`), connects to the driver of the settings, and continuously mixes all sources, each on its own output channel. It is kept across scene loads, so the driver stays connected.
+
+In Play mode, it appears in the *DontDestroyOnLoad* scene of the Hierarchy: its Inspector shows the connection status, with *Reconnect*, *Open Mixer* and *Settings*.
+
+#### Migrating a scene from before version 3.0
+
+Scenes made before version 3.0 contain an `AsioAudioManager` component. Open *Project Settings > ASIO Audio* and click **Migrate the Scene's ASIO Audio Manager** (or use the button in the component's Inspector): its settings (driver, sample rate, format, master volume, overlay, snapshots) are copied to the ASIO Audio Settings, and the component is removed from the scene. Save the scene afterwards.
+
+Until a scene is migrated, it keeps working: if the project has no settings asset yet, the scene's manager uses its own settings (with a warning).
 
 #### Public Properties
+
 | **Property** | **Description** |
 |-|-|
-| `AsioDriverName` | The name of the ASIO driver to connect to. Changing it at runtime reconnects. |
-| `TargetSampleRate` | The sample rate the ASIO driver runs at (default: 48000 Hz). Audio files are resampled to it on the fly. Changing it at runtime reconnects. |
-| `TargetBitsPerSample` | The sample format the mix is handed to NAudio in (16-bit integer or 32-bit float). NAudio then converts it to the driver's own format (`AsioDriverSampleFormat`), so a 24-bit driver gets full 24-bit samples from 32-bit float. 16-bit only works with 16-bit and 32-bit integer drivers; with other drivers, 32-bit float is used instead (with a warning). Changing it at runtime reconnects. |
-| `AsioDriverSampleFormat` | The sample format the ASIO driver actually works with, e.g. `24-bit integer`, set by the driver and its control panel (Read Only, empty until connected). The Inspector shows it as *Driver Format*, remembered from the last connection so it is visible outside Play mode. |
-| `MasterVolume` | Volume applied to all sources after their own volume, like the master fader of a mixing desk (linear gain, 0 to 1; default: 1). Applied live and smoothly. Shown in dB in the Inspector, as the *Master* strip of the ASIO Mixer, and in the overlay. |
-| `MasterVolumeDecibels` | The master volume in decibels (0 dB: unchanged; negative infinity: silence). |
-| `MasterMeterLevel` | The level sent to the ASIO driver (peak of all channels, 0 to 1, after the master volume), with a meter-like falloff (Read Only). |
+| `AsioAudioManager.Instance` | The manager (static). In Play mode or in a build, it is created if needed. Null in Edit mode. |
+| `AsioAudioManager.Existing` | The manager if it exists, without creating it (static). |
+| `Settings` | The ASIO Audio Settings in use (`AsioAudioSettings.Instance`). |
+| `AsioDriverName`, `TargetSampleRate`, `TargetBitsPerSample` | The driver, sample rate and sample format (from the settings). Setting them reconnects the driver. |
+| `MasterVolume`, `MasterVolumeDecibels` | The master volume, linear (0 to 1) or in dB (from the settings). Applied live and smoothly. |
+| `MasterMeterLevel` | The level sent to the driver (peak of all channels, after the master volume), with a meter-like falloff (Read Only). |
 | `IsConnected` | Whether the ASIO driver is connected and playing (Read Only). |
-| `AsioDriverOutputChannelCount` | The number of output channels of the ASIO driver, i.e. the highest valid `TargetOutputChannel` (Read Only). |
-| `AsioDriverInputChannelCount` | The number of input channels of the ASIO driver (Read Only). |
-| `AsioDriverOutputChannelNames` | The driver's names for its output channels (e.g. `ReaRoute 3`), index 0 being channel 1 (Read Only, empty until connected). `GetOutputChannelName(channel)` returns the name of one channel. The Inspector and the ASIO Mixer show them, remembered from the last connection. |
-| `Snapshots` | The saved mixer snapshots (`AsioMixerSnapshot`: `Name`, `MasterVolume`, and the `Volume` / `Mute` / `Solo` of each source). |
-| `AsioAudioSources` | A list of all [AsioAudioSource](/Documentation~/Audio%20Components/AsioAudioSource.md) components managed by this manager (Read Only). |
-| `DisplayInfoOnGameWindow` | Whether the in-game overlay is shown. |
-| `OverlayToggleKey` | The key that shows or hides the in-game overlay at runtime (default: F9; `None` for no key). |
-| `OverlayScale` | The size of the in-game overlay (0.5 to 3, e.g. 2 on a 4K screen). |
+| `AsioDriverOutputChannelCount`, `AsioDriverInputChannelCount` | The driver's number of outputs (the highest valid `TargetOutputChannel`) and inputs (Read Only). |
+| `AsioDriverSampleFormat` | The sample format the driver works with, e.g. `24-bit integer` (Read Only, empty until connected). |
+| `AsioDriverOutputChannelNames`, `GetOutputChannelName(channel)` | The driver's names for its output channels, e.g. `ReaRoute 3` (Read Only). |
+| `AsioAudioSources` | The sources playing through the manager (Read Only). |
+| `Snapshots` | The saved snapshots (from the settings). |
+| `DisplayInfoOnGameWindow`, `OverlayToggleKey`, `OverlayScale` | The in-game overlay settings (from the settings). |
 
 #### Public Methods
 
 | **Method** | **Description** |
 |-|-|
-| `Reconnect` | Disconnects from the ASIO driver and connects again with the current settings. Sources keep their state and position. |
-| `PlayAll` | Plays (or resumes) all the sources managed by this manager, starting on the same sample. Also available on the *Master* strip of the ASIO Mixer. |
-| `PauseAll` | Pauses all the playing sources, on the same sample (so they stay in sync when resumed). |
-| `StopAll` | Stops all the sources (they go back to the start of their file). |
-| `RestartAll` | Plays all the sources from the start of their file, together. |
-| `SaveSnapshot(name)` | Saves the current mix as a snapshot (a snapshot with the same name is replaced). |
-| `RecallSnapshot(name)` / `RecallSnapshot(index)` | Applies a saved snapshot (volume changes are smoothed while playing). Returns `false` if it doesn't exist. |
+| `PlayAll`, `PauseAll`, `StopAll`, `RestartAll` | Transport of all sources, **on the same sample** (stems stay in sync). Also on the *Master* strip of the ASIO Audio Mixer, and over OSC. |
+| `SaveSnapshot(name)` | Saves the mix of the loaded scenes as a snapshot (a snapshot with the same name is replaced). |
+| `RecallSnapshot(name)` / `RecallSnapshot(index)` | Applies a snapshot (volume changes are smoothed while playing). Returns `false` if it doesn't exist. |
 | `DeleteSnapshot(name)` | Deletes a snapshot. |
-| `RequestAddAsioAudioSource` | Validates and adds a [AsioAudioSource](/Documentation~/Audio%20Components/AsioAudioSource.md) to the manager. Returns `true` if the source is successfully added, `false` otherwise. |
-| `RequestRemoveAsioAudioSource` | Removes a [AsioAudioSource](/Documentation~/Audio%20Components/AsioAudioSource.md) from the manager. Returns `true` if the source is successfully removed, `false` otherwise. |
+| `Reconnect` | Disconnects from the driver and connects again. Sources keep their state and position. |
+| `RequestAddAsioAudioSource`, `RequestRemoveAsioAudioSource` | Used by the sources to register (you don't need to call them). |
 
-#### Unity Events
+#### Events
 
 | **Event** | **Description** |
 |-|-|
-| `OnAsioDriverNameChanged` | Triggered when the ASIO driver name is updated. |
-| `OnTargetSampleRateChanged` | Triggered when the target sample rate is updated. |
-| `OnTargetBitsPerSampleChanged` | Triggered when the target bit depth is updated. |
+| `AsioAudioManager.TransportCommandIssued` | Static: called after `PlayAll`, `PauseAll`, `StopAll` and `RestartAll` (used by the REAPER Controller to follow Unity). |
+| `OnAsioDriverNameChanged`, `OnTargetSampleRateChanged`, `OnTargetBitsPerSampleChanged` | Called when these settings are changed through the manager. |
+
+### Script Example
+
+```cs
+using UnityEngine;
+using AsioAudioUnity;
+
+public class ShowControl : MonoBehaviour
+{
+    public void StartShow()
+    {
+        AsioAudioManager manager = AsioAudioManager.Instance;
+        manager.RecallSnapshot("Intro");
+        manager.MasterVolumeDecibels = -6f;
+        manager.RestartAll();   // all sources from the start, in sync
+    }
+}
+```

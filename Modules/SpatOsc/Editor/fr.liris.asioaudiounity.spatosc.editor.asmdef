@@ -1,0 +1,21 @@
+{
+    "name": "AsioAudioUnity.SpatOsc.Editor",
+    "rootNamespace": "AsioAudioUnity",
+    "references": [
+        "AsioAudioUnity",
+        "AsioAudioUnity.Editor",
+        "AsioAudioUnity.Osc",
+        "AsioAudioUnity.SpatOsc"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

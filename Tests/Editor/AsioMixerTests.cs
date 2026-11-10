@@ -148,6 +148,159 @@ namespace AsioAudioUnity.Tests
         }
 
         [Test]
+        public void FadeOut_AlsoAppliesAtTheEndOfANonLoopingFile()
+        {
+            AsioMixer mixer = new AsioMixer(SampleRate, Channels);
+            AsioSourceVoice voice = CreateVoice(1);
+            voice.FadeOutSeconds = 0.5f;
+            mixer.AddVoice(voice);
+            voice.Play();
+
+            IWaveProvider output = mixer.ToWaveProvider();
+            byte[] bytes = NewDirtyBuffer();
+            int buffersInFile = SampleRate * 2 / FramesPerBuffer; // the tone lasts 2 s
+            float middlePeak = 0f, lastPeak = 0f;
+            for (int i = 0; i < buffersInFile; i++)
+            {
+                float peak = ReadBufferPeaks(output, bytes)[0];
+                if (i == buffersInFile / 2) middlePeak = peak;   // 1 s: before the fade-out
+                if (i == buffersInFile - 1) lastPeak = peak;     // last buffer: end of the fade-out
+            }
+
+            Assert.That(middlePeak, Is.EqualTo(ToneAmplitude).Within(0.01f), "Before the fade-out, the level is the file's level.");
+            Assert.Less(lastPeak, ToneAmplitude * 0.05f, "At the end of the file, the fade-out is almost silent.");
+            voice.Dispose();
+        }
+
+        [Test]
+        public void PauseFadeOut_LastsTheWholeFadeDuration()
+        {
+            AsioMixer mixer = new AsioMixer(SampleRate, Channels);
+            AsioSourceVoice voice = CreateVoice(1);
+            voice.FadeOutSeconds = 0.5f;
+            voice.FadeOutCurve = AsioFadeCurve.Linear;
+            mixer.AddVoice(voice);
+            voice.Play();
+
+            IWaveProvider output = mixer.ToWaveProvider();
+            byte[] bytes = NewDirtyBuffer();
+            for (int i = 0; i < 5; i++) ReadBufferPeaks(output, bytes);
+            voice.Pause();
+
+            int buffersInFade = (int)(SampleRate * 0.5f / FramesPerBuffer);
+            float midFadePeak = 0f;
+            for (int i = 0; i < buffersInFade + 2; i++)
+            {
+                float peak = ReadBufferPeaks(output, bytes)[0];
+                if (i == buffersInFade / 2) midFadePeak = peak;
+            }
+            float afterFadePeak = ReadBufferPeaks(output, bytes)[0];
+
+            Assert.That(midFadePeak, Is.EqualTo(ToneAmplitude * 0.5f).Within(0.03f), "Halfway through a linear fade-out, the level is halved.");
+            Assert.AreEqual(0f, afterFadePeak, "After the fade-out, the voice is silent.");
+            voice.Dispose();
+        }
+
+        [TestCase(AsioFadeCurve.Linear, 0.5f)]
+        [TestCase(AsioFadeCurve.Squared, 0.25f)]
+        [TestCase(AsioFadeCurve.InvertedSquared, 0.75f)]
+        [TestCase(AsioFadeCurve.SCurve, 0.5f)]
+        public void FadeInCurve_ShapesTheFadeIn(AsioFadeCurve curve, float gainHalfway)
+        {
+            AsioMixer mixer = new AsioMixer(SampleRate, Channels);
+            AsioSourceVoice voice = CreateVoice(1);
+            voice.FadeInSeconds = 1f;
+            voice.FadeInCurve = curve;
+            mixer.AddVoice(voice);
+            voice.Play();
+
+            IWaveProvider output = mixer.ToWaveProvider();
+            byte[] bytes = NewDirtyBuffer();
+            int halfway = SampleRate / 2 / FramesPerBuffer;
+            for (int i = 0; i < halfway; i++) ReadBufferPeaks(output, bytes);
+            float peak = ReadBufferPeaks(output, bytes)[0];
+
+            Assert.That(peak, Is.EqualTo(ToneAmplitude * gainHalfway).Within(0.03f));
+            voice.Dispose();
+        }
+
+        [Test]
+        public void FadeCurves_InverseUndoesEvaluate()
+        {
+            foreach (AsioFadeCurve curve in (AsioFadeCurve[])Enum.GetValues(typeof(AsioFadeCurve)))
+            {
+                Assert.AreEqual(0f, AsioFadeCurves.Evaluate(curve, 0f), curve.ToString());
+                Assert.AreEqual(1f, AsioFadeCurves.Evaluate(curve, 1f), curve.ToString());
+                for (float x = 0.05f; x < 1f; x += 0.05f)
+                {
+                    Assert.That(AsioFadeCurves.Inverse(curve, AsioFadeCurves.Evaluate(curve, x)), Is.EqualTo(x).Within(1e-4f), curve + " at " + x);
+                }
+            }
+        }
+
+        // Plays a 1 s file whose sine doesn't end where it starts (a hard loop jumps from 0.5 to 0) for 3 s, and returns the biggest
+        // difference between two consecutive output samples (a click) and the final playback position.
+        private static (float biggestStep, double finalTime) PlayLoopingClickyFile(float crossfadeSeconds, bool preload)
+        {
+            string path = Path.Combine(Path.GetTempPath(), "AsioAudioUnityTests_loop_" + Guid.NewGuid().ToString("N") + ".wav");
+            try
+            {
+                using (WaveFileWriter writer = new WaveFileWriter(path, WaveFormat.CreateIeeeFloatWaveFormat(SampleRate, 1)))
+                {
+                    float[] samples = new float[SampleRate];
+                    for (int i = 0; i < samples.Length; i++) samples[i] = ToneAmplitude * (float)Math.Sin(2 * Math.PI * 300.25 * i / SampleRate);
+                    writer.WriteSamples(samples, 0, samples.Length);
+                }
+
+                AsioMixer mixer = new AsioMixer(SampleRate, Channels);
+                AsioSourceVoice voice = new AsioSourceVoice { OutputChannel = 1, Loop = true, LoopCrossfadeSeconds = crossfadeSeconds };
+                voice.Load(path, SampleRate, preload);
+                mixer.AddVoice(voice);
+                voice.Play();
+
+                IWaveProvider output = mixer.ToWaveProvider();
+                byte[] bytes = new byte[FramesPerBuffer * Channels * 4];
+                float biggestStep = 0f, previous = 0f;
+                for (int b = 0; b < SampleRate * 3 / FramesPerBuffer; b++)
+                {
+                    output.Read(bytes, 0, bytes.Length);
+                    float[] buffer = new WaveBuffer(bytes).FloatBuffer;
+                    for (int frame = 0; frame < FramesPerBuffer; frame++)
+                    {
+                        float sample = buffer[frame * Channels];
+                        biggestStep = Math.Max(biggestStep, Math.Abs(sample - previous));
+                        previous = sample;
+                    }
+                }
+                double finalTime = voice.CurrentTime;
+                voice.Dispose();
+                return (biggestStep, finalTime);
+            }
+            finally
+            {
+                if (File.Exists(path)) File.Delete(path);
+            }
+        }
+
+        [Test]
+        public void HardLoop_ClicksOnAFileThatDoesNotLoopCleanly()
+        {
+            // Checks that the click detection of the smooth loop test works
+            Assert.Greater(PlayLoopingClickyFile(0f, true).biggestStep, 0.3f);
+        }
+
+        [TestCase(true)]
+        [TestCase(false)]
+        public void LoopCrossfade_HidesTheLoopPoint(bool preload)
+        {
+            (float biggestStep, double finalTime) = PlayLoopingClickyFile(0.2f, preload);
+
+            // A 300 Hz sine at 0.5 changes by at most 0.02 per sample: anything much bigger is a click.
+            Assert.Less(biggestStep, 0.04f, "The crossfade must hide the loop point.");
+            Assert.That(finalTime, Is.InRange(0.0, 1.0), "The playback position must loop too.");
+        }
+
+        [Test]
         public void DeferredRestart_RewindsAllVoicesTogether()
         {
             AsioMixer mixer = new AsioMixer(SampleRate, Channels);

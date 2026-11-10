@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 
 namespace AsioAudioUnity
@@ -6,7 +7,9 @@ namespace AsioAudioUnity
     /// Sends the position of this GameObject over OSC, to "/[OscObject]/[Index]/xyz" (as x, z, y: Unity's Y-up axes converted to Z-up).
     /// The position is sent when the object moves (at most MaxSendRate times per second), and re-sent every KeepAliveInterval seconds
     /// so a receiver that restarts gets it back.
+    /// Obsolete: replaced by the <see cref="SpatController"/>.
     /// </summary>
+    [Obsolete("Replaced by the Spat Controller, which sends the positions of every ASIO Audio Source and of rooms from a single component. Use its Inspector button to replace this component.")]
     public abstract class ObjectPositionOsc : MonoBehaviour
     {
         [SerializeField] public OSC _osc;
@@ -95,7 +98,11 @@ namespace AsioAudioUnity
         private bool EnsureOsc()
         {
             if (Osc == null) Osc = FindFirstObjectByType<OSC>();
-            if (Osc != null) return true;
+            if (Osc != null)
+            {
+                SubscribeToClosing();
+                return true;
+            }
 
             if (!_missingOscLogged)
             {
@@ -105,10 +112,38 @@ namespace AsioAudioUnity
             return false;
         }
 
+        // When the OSC Manager closes (end of Play mode, scene unloaded), the position is reset to (0, 0, 0) in Spat Revolution.
+        private OSC _subscribedOsc;
+
+        private void SubscribeToClosing()
+        {
+            if (_subscribedOsc == Osc) return;
+            UnsubscribeFromClosing();
+            Osc.Closing += OnOscClosing;
+            _subscribedOsc = Osc;
+        }
+
+        private void UnsubscribeFromClosing()
+        {
+            if (_subscribedOsc != null) _subscribedOsc.Closing -= OnOscClosing;
+            _subscribedOsc = null;
+        }
+
+        private void OnOscClosing(OSC osc)
+        {
+            if (osc == Osc) SendResetPositionOsc();
+        }
+
         private void OnEnable()
         {
             // Send the position right away when (re)enabled.
             _hasSent = false;
+            if (Osc != null) SubscribeToClosing();
+        }
+
+        private void OnDestroy()
+        {
+            UnsubscribeFromClosing();
         }
 
         void Update()

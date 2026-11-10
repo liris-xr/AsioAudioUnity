@@ -29,16 +29,21 @@ namespace AsioAudioUnity
 
         // Guarded by _sync
         private VoiceSource _source; // Mono samples at the file's sample rate
-        private ISampleProvider _monoOutput; // Mono samples at the output sample rate, read from _source
+        private LoopCrossfadeReader _loopReader; // Reads _source, crossfading the end of the file with its start when looping
+        private ISampleProvider _monoOutput; // Mono samples at the output sample rate, read from _loopReader
         private float[] _scratchBuffer = new float[0];
         private float _appliedVolume; // Last volume applied by the audio thread, used to ramp volume changes smoothly
-        private float _transportGain; // Fade-in / fade-out gain of play, pause and stop (0 to 1)
+        private float _transportGain; // Fade-in / fade-out position of play, pause and stop (0: silent, 1: full volume), shaped by the fade curves
+        private bool _transportRising; // Whether the last buffer was fading in (to keep the gain continuous when a fade changes direction)
         private WaveFormat _decodedFileWaveFormat;
 
         private volatile int _state = StateStopped;
         private int _pendingState = NoPendingState; // A deferred transport change, applied by the mixer at the start of a buffer (Interlocked)
         private volatile float _fadeInSeconds;
         private volatile float _fadeOutSeconds;
+        private volatile int _fadeInCurve = (int)AsioFadeCurve.Squared;
+        private volatile int _fadeOutCurve = (int)AsioFadeCurve.Squared;
+        private volatile float _loopCrossfadeSeconds;
         private volatile int _outputSampleRate = 48000;
         private volatile float _volume = 1f;
         private volatile bool _muted;
@@ -64,6 +69,44 @@ namespace AsioAudioUnity
         public float FadeInSeconds { get => _fadeInSeconds; set => _fadeInSeconds = Math.Max(0f, value); }
         /// <summary>Fade-out duration of Pause and Stop, in seconds. 0: a few milliseconds, just enough to avoid clicks.</summary>
         public float FadeOutSeconds { get => _fadeOutSeconds; set => _fadeOutSeconds = Math.Max(0f, value); }
+        /// <summary>Shape of the fade-in.</summary>
+        public AsioFadeCurve FadeInCurve { get => (AsioFadeCurve)_fadeInCurve; set => _fadeInCurve = (int)value; }
+        /// <summary>Shape of the fade-out (of Pause and Stop, and at the end of a non-looping file).</summary>
+        public AsioFadeCurve FadeOutCurve { get => (AsioFadeCurve)_fadeOutCurve; set => _fadeOutCurve = (int)value; }
+
+        /// <summary>
+        /// When looping, the end of the file is crossfaded with its start over this many seconds (at most half the file), so the loop point
+        /// can't be heard; playback then continues from this time. 0: the file restarts directly (seamless, but the jump can be audible).
+        /// Setting a longer crossfade reads the start of the file again (from disk for a streamed file).
+        /// </summary>
+        public float LoopCrossfadeSeconds
+        {
+            get => _loopCrossfadeSeconds;
+            set
+            {
+                _loopCrossfadeSeconds = Math.Max(0f, value);
+                LoopCrossfadeReader reader = Volatile.Read(ref _loopReader);
+                if (reader != null) EnsureLoopHead(reader);
+            }
+        }
+
+        // Caches the start of the file needed by the crossfade (with a second of margin, so lengthening it a little doesn't read the file again).
+        private void EnsureLoopHead(LoopCrossfadeReader reader)
+        {
+            if (_loopCrossfadeSeconds <= 0f) return;
+            VoiceSource source = reader.Source;
+            long frames = (long)Math.Ceiling((_loopCrossfadeSeconds + 1.0) * source.WaveFormat.SampleRate);
+            frames = Math.Min(frames, source.Length / 2);
+            if (reader.HeadLength >= frames) return;
+            try
+            {
+                reader.SetHead(source.ReadHead((int)Math.Min(frames, int.MaxValue)));
+            }
+            catch (ObjectDisposedException)
+            {
+                // The file was unloaded meanwhile
+            }
+        }
 
         /// <summary>The format the file is decoded to (always 32-bit float, at the file's sample rate and channel count).</summary>
         public WaveFormat DecodedWaveFormat { get { lock (_sync) return _decodedFileWaveFormat; } }
@@ -83,7 +126,9 @@ namespace AsioAudioUnity
         {
             // Open (and possibly decode) the file outside the lock: disk access must not stall the audio thread.
             VoiceSource newSource = VoiceSource.Open(audioFilePath, preloadIntoMemory, out WaveFormat decodedFileWaveFormat);
-            ISampleProvider newMonoOutput = BuildMonoOutput(newSource, outputSampleRate);
+            LoopCrossfadeReader newLoopReader = new LoopCrossfadeReader(newSource, this);
+            EnsureLoopHead(newLoopReader);
+            ISampleProvider newMonoOutput = BuildMonoOutput(newLoopReader, outputSampleRate);
 
             VoiceSource oldSource;
             lock (_sync)
@@ -96,6 +141,7 @@ namespace AsioAudioUnity
                 newSource.Position = (long)(position * newSource.WaveFormat.SampleRate);
 
                 _source = newSource;
+                _loopReader = newLoopReader;
                 _monoOutput = newMonoOutput;
                 _decodedFileWaveFormat = decodedFileWaveFormat;
                 _outputSampleRate = outputSampleRate;
@@ -122,7 +168,7 @@ namespace AsioAudioUnity
 
                 double currentTime = CurrentTime;
                 _outputSampleRate = outputSampleRate;
-                if (_source != null) _monoOutput = BuildMonoOutput(_source, outputSampleRate);
+                if (_loopReader != null) _monoOutput = BuildMonoOutput(_loopReader, outputSampleRate);
                 Interlocked.Exchange(ref _framesPlayed, (long)(currentTime * outputSampleRate));
             }
         }
@@ -135,6 +181,7 @@ namespace AsioAudioUnity
             {
                 oldSource = _source;
                 _source = null;
+                _loopReader = null;
                 _monoOutput = null;
                 _decodedFileWaveFormat = null;
                 _state = StateStopped;
@@ -278,29 +325,57 @@ namespace AsioAudioUnity
                 float fadeInStep = 1f / Math.Max(1f, _outputSampleRate * Math.Max(MinFadeSeconds, _fadeInSeconds));
                 float fadeOutStep = 1f / Math.Max(1f, _outputSampleRate * Math.Max(MinFadeSeconds, _fadeOutSeconds));
 
+                AsioFadeCurve fadeInCurve = (AsioFadeCurve)_fadeInCurve;
+                AsioFadeCurve fadeOutCurve = (AsioFadeCurve)_fadeOutCurve;
+                AsioFadeCurve transportCurve = shouldPlay ? fadeInCurve : fadeOutCurve;
+
+                // A fade that changes direction halfway (e.g. paused during its fade-in): continue from the same gain on the other curve.
+                float transportGain = _transportGain;
+                if (shouldPlay != _transportRising && transportGain > 0f && transportGain < 1f && fadeInCurve != fadeOutCurve)
+                {
+                    float currentGain = AsioFadeCurves.Evaluate(shouldPlay ? fadeOutCurve : fadeInCurve, transportGain);
+                    transportGain = AsioFadeCurves.Inverse(transportCurve, currentGain);
+                }
+                _transportRising = shouldPlay;
+
                 // When fading out, only render what the fade needs.
-                int framesToRender = shouldPlay ? frames : Math.Min(frames, (int)Math.Ceiling(_transportGain / fadeOutStep));
+                int framesToRender = shouldPlay ? frames : Math.Min(frames, (int)Math.Ceiling(transportGain / fadeOutStep));
+
+                // Fade-out at the end of a non-looping file (when a fade-out duration is set), like an item fade-out in REAPER.
+                long firstFrame = Interlocked.Read(ref _framesPlayed);
+                bool endFade = !_loop && _fadeOutSeconds > 0f && _source != null;
+                double totalFrames = endFade ? _source.TotalTime.TotalSeconds * _outputSampleRate : 0;
+                double endFadeFrames = Math.Max(1.0, _outputSampleRate * (double)_fadeOutSeconds);
+
                 int framesRead = framesToRender > 0 ? ReadWithLoop(framesToRender) : 0;
 
                 // Ramp from the previous volume to the current one over the buffer (muting goes through the same ramp).
                 float startVolume = _appliedVolume;
                 float targetVolume = _muted ? 0f : _volume;
                 float volumeStep = (targetVolume - startVolume) / frames;
-                float transportGain = _transportGain;
                 float peak = 0f;
 
                 for (int frame = 0; frame < framesRead; frame++)
                 {
                     transportGain = shouldPlay ? Math.Min(1f, transportGain + fadeInStep) : Math.Max(0f, transportGain - fadeOutStep);
-                    // Squared: a smoother curve than linear for audible fades
-                    float sample = _scratchBuffer[frame] * (startVolume + volumeStep * (frame + 1)) * (transportGain * transportGain);
+                    float gain = AsioFadeCurves.Evaluate(transportCurve, transportGain);
+                    if (endFade)
+                    {
+                        double remaining = totalFrames - (firstFrame + frame);
+                        if (remaining < endFadeFrames)
+                        {
+                            gain *= AsioFadeCurves.Evaluate(fadeOutCurve, (float)Math.Max(0.0, remaining / endFadeFrames));
+                        }
+                    }
+                    float sample = _scratchBuffer[frame] * (startVolume + volumeStep * (frame + 1)) * gain;
 
                     if (validChannel) buffer[offset + frame * channelCount + channelIndex] += sample;
                     if (sample > peak) peak = sample;
                     else if (-sample > peak) peak = -sample;
                 }
                 _appliedVolume = targetVolume;
-                _transportGain = shouldPlay ? transportGain : 0f;
+                // A fade-out that reached the end of a non-looping file is over.
+                _transportGain = !shouldPlay && framesRead < framesToRender ? 0f : transportGain;
 
                 // Losing a value to a race with ConsumePeak is harmless for a meter.
                 if (peak > Volatile.Read(ref _peak)) Volatile.Write(ref _peak, peak);
@@ -313,7 +388,7 @@ namespace AsioAudioUnity
                     RewindLocked(false);
                     Interlocked.Exchange(ref _endReached, 1);
                 }
-                else if (!shouldPlay && Interlocked.Exchange(ref _rewindPending, 0) == 1)
+                else if (!shouldPlay && _transportGain <= 0f && Interlocked.Exchange(ref _rewindPending, 0) == 1)
                 {
                     // Fade-out of a Stop is done.
                     RewindLocked(false);
@@ -336,6 +411,15 @@ namespace AsioAudioUnity
             while (totalRead < frames)
             {
                 int read = _monoOutput.Read(_scratchBuffer, totalRead, frames - totalRead);
+
+                // A crossfaded loop jumped back in the file: so does the playback position.
+                long wrapped = _loopReader.ConsumeWrappedFrames();
+                if (wrapped > 0)
+                {
+                    long wrappedOutputFrames = (long)Math.Round(wrapped * (double)_outputSampleRate / _source.WaveFormat.SampleRate);
+                    Interlocked.Exchange(ref _framesPlayed, Math.Max(0, Interlocked.Read(ref _framesPlayed) - wrappedOutputFrames));
+                }
+
                 if (read > 0)
                 {
                     totalRead += read;
@@ -369,7 +453,7 @@ namespace AsioAudioUnity
             }
         }
 
-        private static ISampleProvider BuildMonoOutput(VoiceSource source, int outputSampleRate)
+        private static ISampleProvider BuildMonoOutput(LoopCrossfadeReader source, int outputSampleRate)
         {
             return source.WaveFormat.SampleRate == outputSampleRate ? source : new WdlResamplingSampleProvider(source, outputSampleRate);
         }

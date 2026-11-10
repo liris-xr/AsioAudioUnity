@@ -12,7 +12,7 @@ The component [AsioAudioSource](/Documentation~/Audio%20Components/AsioAudioSour
 - Property `PlayOnAwake` from Audio Source is replaced with `PlayOnEnable` (triggers `Play` from `OnEnable` instead from `Awake`).
 - Property `Loop` has the same name and behaviour.
 
-However, for all the [AsioAudioSource](/Documentation~/Audio%20Components/AsioAudioSource.md) components to work, we need an [AsioAudioManager](/Documentation~/Audio%20Components/AsioAudioManager.md) component on scene.
+However, for all the [AsioAudioSource](/Documentation~/Audio%20Components/AsioAudioSource.md) components to work, the project needs **ASIO Audio Settings** (*Project Settings > ASIO Audio*), and they play through the [ASIO Audio Manager](/Documentation~/Audio%20Components/AsioAudioManager.md), which is created automatically.
 
 There is multiple reasons that justify the need of this component:
 - [AsioAudioSource](/Documentation~/Audio%20Components/AsioAudioSource.md) components can't send audio to the ASIO driver independently from each other, so a manager keeps one connection to the driver and continuously mixes all sources into it (each source on its own output channel).
@@ -63,20 +63,20 @@ graph LR
     n14@{ shape: rect}
 ```
 
-### Creating the ASIO Audio Manager
+### Setting up the ASIO driver (Project Settings)
 
-**Before adding any [AsioAudioSource](/Documentation~/Audio%20Components/AsioAudioSource.md) component , please verify that an [AsioAudioManager](/Documentation~/Audio%20Components/AsioAudioManager.md) component is already in scene.**
+The ASIO settings are **project settings**, used by every scene: there is no manager to add to the scene.
 
-To add an [AsioAudioManager](/Documentation~/Audio%20Components/AsioAudioManager.md) component on scene, you can go multiple ways:
+1. Open *Edit > Project Settings > ASIO Audio* (or *AsioAudioUnity > Project Settings…*).
+2. The first time, click **Create ASIO Audio Settings**. The settings are saved in `Assets/Settings/ASIO Audio Settings.asset`, and included in builds automatically.
+3. Choose the **Driver**, among the ASIO drivers installed on the machine. **Driver Control Panel** opens the driver's own settings (buffer size, clock...), also in Edit mode.
+4. Set the **Sample Rate** to a rate supported by the driver (some drivers, like ReaRoute, only accept the sample rate of their host application), or the connection will fail with an error in the console. Keep the **Sample Format** at 32-bit float to get the driver's full resolution: the bit depth that actually reaches the audio interface is the driver's own format (for example 24-bit integer), shown as *Driver Format* once connected.
 
-1. Use prefab: A prefab named `ASIO Audio Manager` is present on the `Packages` folder, at `Packages/Asio Audio Unity/Runtime/Prefabs/ASIO Audio Manager.prefab`, you can simply drag and drop this prefab on scene.
-2. Setup GameObject: You can add a GameObject with an [AsioAudioManager](/Documentation~/Audio%20Components/AsioAudioManager.md) component on scene by going to *GameObject > AsioAudioUnity > ASIO Audio Manager*.
+When the first [AsioAudioSource](/Documentation~/Audio%20Components/AsioAudioSource.md) is enabled in Play mode, the [ASIO Audio Manager](/Documentation~/Audio%20Components/AsioAudioManager.md) is created and connects to the driver: the console shows the driver, its number of outputs (the highest valid `TargetOutputChannel`) and its format. The connection status is also shown in Project Settings, in the ASIO Audio Mixer and in the in-game overlay (F9).
 
-Once the [AsioAudioManager](/Documentation~/Audio%20Components/AsioAudioManager.md) is put in scene, you can set the `AsioDriverName` field with the ASIO driver name you want to connect to. If the name is correctly set, you shouldn't have any errors on the console. Moreover you can see the connection status in the Inspector in Play mode, and in the in-game overlay (shown when `DisplayInfoOnGameWindow` is ticked, toggled with F9 at runtime).
+> **Connected, but nothing plays?** If the console warns that the driver *isn't asking for audio* (the sources show *Playing* but their time stays at 0), the driver isn't processing audio. With ReaRoute, REAPER must be running **with its audio device open**: check its audio device in *Options > Preferences > Audio > Device* (switch to REAPER and press Play once to make sure it runs), and make sure *Close audio device when stopped and application is inactive* (*Preferences > Audio*) is off, since Unity is the active application.
 
-As channels are limited on ASIO drivers, you can see how many output channels are available on the ASIO driver you specified by looking at the `AsioDriverOutputChannelCount` property when starting the application.
-
-Finally, make sure to set `TargetSampleRate` to a sample rate supported by the ASIO driver (some drivers, like ReaRoute, only accept the sample rate of their host application), or the connection will fail with an error in the console. `TargetBitsPerSample` sets the format the mix is handed over in (16-bit integer or 32-bit float). The bit depth that actually reaches the audio interface is the driver's own format (for example 24-bit integer), shown in `AsioDriverSampleFormat`, in the Inspector and in the overlay once connected. Keep 32-bit float to get the driver's full resolution.
+> **Scenes from before version 3.0** contain an `AsioAudioManager` component: open *Project Settings > ASIO Audio* and click *Migrate the Scene's ASIO Audio Manager* to move its settings to Project Settings and remove it.
 
 ### Setup ASIO Audio Sources
 

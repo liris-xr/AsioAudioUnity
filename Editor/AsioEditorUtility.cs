@@ -10,7 +10,7 @@ using Object = UnityEngine.Object;
 namespace AsioAudioUnity
 {
     /// <summary>
-    /// Shared helpers for the ASIO Audio Unity inspectors and the ASIO Mixer window.
+    /// Shared helpers for the ASIO Audio Unity inspectors and the ASIO Audio Mixer window.
     /// </summary>
     internal static class AsioEditorUtility
     {
@@ -23,12 +23,21 @@ namespace AsioAudioUnity
         public static readonly Color StoppedColor = new Color(0.55f, 0.55f, 0.55f);
         public static readonly Color ErrorColor = new Color(0.95f, 0.35f, 0.35f);
 
-        // ---------- Scene objects ----------
+        // ---------- Settings and manager ----------
 
-        public static AsioAudioManager FindManager()
+        /// <summary>The project's ASIO Audio Settings (default, unsaved settings if the asset doesn't exist yet).</summary>
+        public static AsioAudioSettings Settings => AsioAudioSettings.Instance;
+
+        /// <summary>The running ASIO Audio Manager (Play mode only, once created), or null.</summary>
+        public static AsioAudioManager LiveManager => EditorApplication.isPlaying ? AsioAudioManager.Existing : null;
+
+        /// <summary>Opens Project Settings > ASIO Audio.</summary>
+        public static void OpenSettings()
         {
-            return Object.FindFirstObjectByType<AsioAudioManager>(FindObjectsInactive.Include);
+            SettingsService.OpenProjectSettings(AsioAudioSettingsProvider.SettingsPath);
         }
+
+        // ---------- Scene objects ----------
 
         /// <summary>All ASIO Audio Sources in the open scenes (including inactive ones), sorted by output channel.</summary>
         public static AsioAudioSource[] FindAllSources()
@@ -40,44 +49,57 @@ namespace AsioAudioUnity
         }
 
         /// <summary>
-        /// Records an Undo step (and prefab override) for a change made through a component's C# properties.
+        /// Records an Undo step (and prefab override) for a change made through an object's C# properties.
         /// </summary>
         public static void RecordChange(Object target, string undoName, Action change)
         {
             Undo.RecordObject(target, undoName);
             change();
             PrefabUtility.RecordPrefabInstancePropertyModifications(target);
+            if (EditorUtility.IsPersistent(target)) EditorUtility.SetDirty(target); // assets (the settings) must be saved
+        }
+
+        /// <summary>Records an Undo step for a change of the ASIO Audio Settings (creating the settings asset first if needed).</summary>
+        public static void RecordSettingsChange(string undoName, Action<AsioAudioSettings> change)
+        {
+            AsioAudioSettings settings = AsioAudioSettingsProvider.GetOrCreateSettingsAsset();
+            RecordChange(settings, undoName, () => change(settings));
         }
 
         // ---------- Mixer snapshots (with Undo) ----------
 
-        public static string NextSnapshotName(AsioAudioManager manager)
+        public static string NextSnapshotName()
         {
-            int number = manager.Snapshots.Count + 1;
-            while (manager.Snapshots.Any(snapshot => snapshot.Name == "Snapshot " + number)) number++;
+            List<AsioMixerSnapshot> snapshots = Settings.Snapshots;
+            int number = snapshots.Count + 1;
+            while (snapshots.Any(snapshot => snapshot.Name == "Snapshot " + number)) number++;
             return "Snapshot " + number;
         }
 
-        public static void SaveSnapshot(AsioAudioManager manager, string snapshotName)
+        public static void SaveSnapshot(string snapshotName)
         {
-            RecordChange(manager, "Save Mixer Snapshot", () => manager.SaveSnapshot(snapshotName));
+            AsioAudioSource[] sources = FindAllSources();
+            RecordSettingsChange("Save Mixer Snapshot", settings => settings.SaveSnapshot(snapshotName, sources));
         }
 
-        public static void RecallSnapshot(AsioAudioManager manager, int index)
+        public static void RecallSnapshot(int index)
         {
-            if (index < 0 || index >= manager.Snapshots.Count) return;
+            AsioAudioSettings settings = AsioAudioSettingsProvider.GetOrCreateSettingsAsset();
+            if (index < 0 || index >= settings.Snapshots.Count) return;
 
-            List<Object> changed = new List<Object> { manager };
-            changed.AddRange(manager.Snapshots[index].Sources.Where(settings => settings.Source != null).Select(settings => (Object)settings.Source));
+            AsioAudioSource[] sources = FindAllSources();
+            List<Object> changed = new List<Object> { settings };
+            changed.AddRange(sources);
             Undo.RecordObjects(changed.ToArray(), "Recall Mixer Snapshot");
-            manager.RecallSnapshot(index);
+            settings.ApplySnapshot(settings.Snapshots[index], sources);
             foreach (Object target in changed) PrefabUtility.RecordPrefabInstancePropertyModifications(target);
+            EditorUtility.SetDirty(settings);
         }
 
-        public static void DeleteSnapshot(AsioAudioManager manager, int index)
+        public static void DeleteSnapshot(int index)
         {
-            if (index < 0 || index >= manager.Snapshots.Count) return;
-            RecordChange(manager, "Delete Mixer Snapshot", () => manager.Snapshots.RemoveAt(index));
+            if (index < 0 || index >= Settings.Snapshots.Count) return;
+            RecordSettingsChange("Delete Mixer Snapshot", settings => settings.Snapshots.RemoveAt(index));
         }
 
         // ---------- ASIO driver ----------
@@ -95,47 +117,54 @@ namespace AsioAudioUnity
             return _driverNames;
         }
 
-        /// <summary>
-        /// Output channel count of the manager's driver: the live value when connected, otherwise the last value seen for this driver (0 if never seen).
-        /// </summary>
-        public static int GetKnownOutputChannelCount(AsioAudioManager manager)
+        // The running manager, if it is connected to the driver of the settings.
+        private static AsioAudioManager ConnectedManager
         {
-            if (manager == null || string.IsNullOrEmpty(manager.AsioDriverName)) return 0;
-
-            string key = "AsioAudioUnity.OutputChannelCount." + manager.AsioDriverName;
-            if (manager.IsConnected)
+            get
             {
-                if (EditorPrefs.GetInt(key, 0) != manager.AsioDriverOutputChannelCount) EditorPrefs.SetInt(key, manager.AsioDriverOutputChannelCount);
-                return manager.AsioDriverOutputChannelCount;
+                AsioAudioManager manager = LiveManager;
+                return manager != null && manager.IsConnected && manager.AsioDriverName == Settings.AsioDriverName ? manager : null;
             }
-            return EditorPrefs.GetInt(key, 0);
         }
 
         /// <summary>
-        /// Sample format of the manager's driver (e.g. "24-bit integer"): the live value when connected, otherwise the last value seen for this driver (empty if never seen).
+        /// Output channel count of the driver of the settings: the live value when connected, otherwise the last value seen for this driver (0 if never seen).
         /// </summary>
-        public static string GetKnownDriverSampleFormat(AsioAudioManager manager)
+        public static int GetKnownOutputChannelCount()
         {
-            if (manager == null || string.IsNullOrEmpty(manager.AsioDriverName)) return "";
+            string driverName = Settings.AsioDriverName;
+            if (string.IsNullOrEmpty(driverName)) return 0;
 
-            string key = "AsioAudioUnity.DriverSampleFormat." + manager.AsioDriverName;
-            if (manager.IsConnected && !string.IsNullOrEmpty(manager.AsioDriverSampleFormat))
-            {
-                if (EditorPrefs.GetString(key, "") != manager.AsioDriverSampleFormat) EditorPrefs.SetString(key, manager.AsioDriverSampleFormat);
-                return manager.AsioDriverSampleFormat;
-            }
-            return EditorPrefs.GetString(key, "");
+            AsioAudioManager manager = ConnectedManager;
+            return manager != null ? manager.AsioDriverOutputChannelCount : EditorPrefs.GetInt("AsioAudioUnity.OutputChannelCount." + driverName, 0);
+        }
+
+        /// <summary>
+        /// Sample format of the driver of the settings (e.g. "24-bit integer"): the live value when connected, otherwise the last value seen for this driver (empty if never seen).
+        /// </summary>
+        public static string GetKnownDriverSampleFormat()
+        {
+            string driverName = Settings.AsioDriverName;
+            if (string.IsNullOrEmpty(driverName)) return "";
+
+            AsioAudioManager manager = ConnectedManager;
+            return manager != null && !string.IsNullOrEmpty(manager.AsioDriverSampleFormat)
+                ? manager.AsioDriverSampleFormat
+                : EditorPrefs.GetString("AsioAudioUnity.DriverSampleFormat." + driverName, "");
         }
 
         /// <summary>
         /// The driver's name of an output channel (1-based, e.g. "ReaRoute 3"): the live value when connected, otherwise the last value seen for this driver (empty if unknown).
         /// </summary>
-        public static string GetKnownOutputChannelName(AsioAudioManager manager, int channel)
+        public static string GetKnownOutputChannelName(int channel)
         {
-            if (manager == null || string.IsNullOrEmpty(manager.AsioDriverName) || channel < 1) return "";
-            if (manager.IsConnected) return manager.GetOutputChannelName(channel);
+            string driverName = Settings.AsioDriverName;
+            if (string.IsNullOrEmpty(driverName) || channel < 1) return "";
 
-            string[] names = EditorPrefs.GetString("AsioAudioUnity.OutputChannelNames." + manager.AsioDriverName, "").Split('\n');
+            AsioAudioManager manager = ConnectedManager;
+            if (manager != null) return manager.GetOutputChannelName(channel);
+
+            string[] names = EditorPrefs.GetString("AsioAudioUnity.OutputChannelNames." + driverName, "").Split('\n');
             return channel <= names.Length ? names[channel - 1] : "";
         }
 
@@ -178,12 +207,11 @@ namespace AsioAudioUnity
 
             List<GUIContent> labelList = new List<GUIContent> { new GUIContent("None") };
             List<int> valueList = new List<int> { 0 };
-            AsioAudioManager manager = FindManager();
 
             for (int channel = 1; channel <= Mathf.Max(channelCount, currentChannel); channel++)
             {
                 string label = channel.ToString();
-                string channelName = GetKnownOutputChannelName(manager, channel);
+                string channelName = GetKnownOutputChannelName(channel);
                 if (!string.IsNullOrEmpty(channelName)) label += "  " + channelName.Replace("/", "∕");
                 if (channel > channelCount) label += "  (doesn't exist on driver)";
 

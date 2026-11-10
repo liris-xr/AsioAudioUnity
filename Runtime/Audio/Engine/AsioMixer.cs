@@ -57,6 +57,7 @@ namespace AsioAudioUnity
         }
 
         private volatile float _masterVolume = 1f;
+        private long _renderedFrames; // Frames requested by the driver since the start (Interlocked)
         private float _appliedMasterVolume = -1f; // [Audio thread] -1: not applied yet (no ramp on the first buffer)
         private float _masterPeak;
 
@@ -72,6 +73,9 @@ namespace AsioAudioUnity
         /// Applies the deferred transport changes of all voices (see AsioSourceVoice.Play(deferred)) at the start of the next buffer,
         /// so they all start, pause or stop on the same sample.
         /// </summary>
+        /// <summary>How many frames the driver has asked for since the mixer was created (0: the driver isn't processing audio).</summary>
+        public long RenderedFrames => Interlocked.Read(ref _renderedFrames);
+
         public void ApplyPendingStates()
         {
             Interlocked.Exchange(ref _applyPendingStatesRequest, 1);
@@ -94,6 +98,7 @@ namespace AsioAudioUnity
 
             int channelCount = WaveFormat.Channels;
             int frames = count / channelCount;
+            Interlocked.Add(ref _renderedFrames, frames);
 
             AsioSourceVoice[] voices = _voices;
             for (int i = 0; i < voices.Length; i++)

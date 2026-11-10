@@ -4,123 +4,205 @@ using System.Linq;
 using System.Reflection;
 using UnityEngine;
 using UnityEngine.Events;
-using UnityEngine.Serialization;
 using NAudio.Wave;
 using NAudio.Wave.Asio;
 
 namespace AsioAudioUnity
 {
     /// <summary>
-    /// The main class to manage ASIO audio playback in Unity. It allows you to set the ASIO driver name, target sample rate, and bits per sample.
-    /// The ASIO driver stays connected while this component is enabled, and continuously plays the mix of all registered ASIO Audio Sources
+    /// Runs ASIO playback: keeps the ASIO driver connected and continuously plays the mix of all the ASIO Audio Sources
     /// (each one on its own output channel). Playing, pausing or stopping a source doesn't interrupt the driver.
+    ///
+    /// There is no need to add it to a scene: it is created automatically (AsioAudioManager.Instance) when the first source needs it,
+    /// and kept across scene loads, so the driver stays connected. Its settings are the project's ASIO Audio Settings
+    /// (Project Settings > ASIO Audio).
     /// </summary>
-    [DefaultExecutionOrder(-100)] // Connect before the ASIO Audio Sources are enabled
+    [DefaultExecutionOrder(-100)]
+    [AddComponentMenu("")] // Created automatically: not in the Add Component menu
     public class AsioAudioManager : MonoBehaviour
     {
-        private UnityEvent _onAsioDriverNameChanged;
-        public UnityEvent OnAsioDriverNameChanged
+        // ---------- Instance ----------
+
+        private static AsioAudioManager _instance;
+
+        /// <summary>
+        /// The ASIO Audio Manager. In Play mode, it is created if needed (and kept across scenes). Null in Edit mode.
+        /// </summary>
+        public static AsioAudioManager Instance
         {
-            get { return _onAsioDriverNameChanged; }
-            private set { _onAsioDriverNameChanged = value; }
+            get
+            {
+                if (_instance != null) return _instance;
+                if (!Application.isPlaying) return null;
+
+                // A scene from before version 3.0 may still contain a manager (not migrated yet): use it.
+                AsioAudioManager sceneManager = FindFirstObjectByType<AsioAudioManager>();
+                if (sceneManager != null)
+                {
+                    _instance = sceneManager;
+                    return _instance;
+                }
+
+                GameObject managerObject = new GameObject("ASIO Audio Manager");
+                DontDestroyOnLoad(managerObject);
+                _instance = managerObject.AddComponent<AsioAudioManager>(); // Awake and OnEnable run now: the driver connects
+                return _instance;
+            }
         }
 
-        [SerializeField] private string _asioDriverName;
-        /// <summary>
-        /// The name of the ASIO driver to play on. Changing it at runtime reconnects to the new driver.
-        /// </summary>
+        /// <summary>The ASIO Audio Manager if it exists, without creating it (null in Edit mode, or before any source played).</summary>
+        public static AsioAudioManager Existing => _instance;
+
+        // ---------- Settings ----------
+
+        // The settings of a scene manager from before version 3.0 (hidden). Migrated to the ASIO Audio Settings asset with
+        // AsioSettingsMigration (button in Project Settings > ASIO Audio, or in the manager's Inspector); used at runtime only while the project has no settings asset.
+        [SerializeField, HideInInspector] private string _asioDriverName;
+        [SerializeField, HideInInspector] private int _targetSampleRate = 48000;
+        [SerializeField, HideInInspector] private BitsPerSample _targetBitsPerSample = BitsPerSample.Bits32;
+        [SerializeField, HideInInspector] private float _masterVolume = 1f;
+        [SerializeField, HideInInspector] private bool _displayInfoOnGameWindow = true;
+        [SerializeField, HideInInspector] private KeyCode _overlayToggleKey = KeyCode.F9;
+        [SerializeField, HideInInspector] private float _overlayScale = 1f;
+        [SerializeField, HideInInspector] private List<AsioMixerSnapshot> _snapshots = new List<AsioMixerSnapshot>();
+
+        /// <summary>Whether this is a manager saved in a scene (from before version 3.0), whose settings can be migrated to Project Settings.</summary>
+        public bool HasLegacySceneSettings => !string.IsNullOrEmpty(_asioDriverName);
+
+        internal string LegacyDriverName => _asioDriverName;
+        internal int LegacySampleRate => _targetSampleRate;
+        internal BitsPerSample LegacyBitsPerSample => _targetBitsPerSample;
+        internal float LegacyMasterVolume => _masterVolume;
+        internal bool LegacyDisplayInfoOnGameWindow => _displayInfoOnGameWindow;
+        internal KeyCode LegacyOverlayToggleKey => _overlayToggleKey;
+        internal float LegacyOverlayScale => _overlayScale;
+        internal List<AsioMixerSnapshot> LegacySnapshots => _snapshots;
+
+        private AsioAudioSettings _legacySettings;
+
+        /// <summary>The settings in use: the project's ASIO Audio Settings.</summary>
+        public AsioAudioSettings Settings
+        {
+            get
+            {
+                if (AsioAudioSettings.HasSettingsAsset || !HasLegacySceneSettings) return AsioAudioSettings.Instance;
+
+                // Not migrated yet: run with the scene's settings.
+                if (_legacySettings == null)
+                {
+                    _legacySettings = ScriptableObject.CreateInstance<AsioAudioSettings>();
+                    _legacySettings.hideFlags = HideFlags.DontSave;
+                    _legacySettings.AsioDriverName = _asioDriverName;
+                    _legacySettings.TargetSampleRate = _targetSampleRate;
+                    _legacySettings.TargetBitsPerSample = _targetBitsPerSample;
+                    _legacySettings.MasterVolume = _masterVolume;
+                    _legacySettings.DisplayInfoOnGameWindow = _displayInfoOnGameWindow;
+                    _legacySettings.OverlayToggleKey = _overlayToggleKey;
+                    _legacySettings.OverlayScale = _overlayScale;
+                    Debug.LogWarning("ASIO Audio Manager: the scene's ASIO Audio Manager settings are used, because the project has no ASIO Audio Settings yet. "
+                        + "Migrate them from Project Settings > ASIO Audio, or with the button in this component's Inspector.", this);
+                }
+                return _legacySettings;
+            }
+        }
+
+        public UnityEvent OnAsioDriverNameChanged { get; } = new UnityEvent();
+        public UnityEvent OnTargetSampleRateChanged { get; } = new UnityEvent();
+        public UnityEvent OnTargetBitsPerSampleChanged { get; } = new UnityEvent();
+
+        /// <summary>The name of the ASIO driver to play on (ASIO Audio Settings). Changing it reconnects.</summary>
         public string AsioDriverName
         {
-            get { return _asioDriverName; }
+            get { return Settings.AsioDriverName; }
             set
             {
-                if (_asioDriverName == value) return;
-                _asioDriverName = value;
+                if (Settings.AsioDriverName == value) return;
+                Settings.AsioDriverName = value;
                 ApplyConfigurationChange();
-                if (OnAsioDriverNameChanged != null)
-                    OnAsioDriverNameChanged.Invoke();
+                OnAsioDriverNameChanged.Invoke();
             }
         }
 
-        private UnityEvent _onTargetSampleRateChanged;
-        public UnityEvent OnTargetSampleRateChanged
-        {
-            get { return _onTargetSampleRateChanged; }
-            private set { _onTargetSampleRateChanged = value; }
-        }
-
-        [SerializeField] private int _targetSampleRate = 48000;
-        /// <summary>
-        /// The sample rate the ASIO driver runs at. Audio files are resampled to it on the fly. Changing it at runtime reconnects the driver.
-        /// </summary>
+        /// <summary>The sample rate the ASIO driver runs at (ASIO Audio Settings). Changing it reconnects.</summary>
         public int TargetSampleRate
         {
-            get { return _targetSampleRate; }
+            get { return Settings.TargetSampleRate; }
             set
             {
-                if (_targetSampleRate == value) return;
-                _targetSampleRate = value;
+                if (Settings.TargetSampleRate == value) return;
+                Settings.TargetSampleRate = value;
                 ApplyConfigurationChange();
-                if (OnTargetSampleRateChanged != null)
-                    OnTargetSampleRateChanged.Invoke();
+                OnTargetSampleRateChanged.Invoke();
             }
         }
 
-        private UnityEvent _onTargetBitsPerSampleChanged;
-        public UnityEvent OnTargetBitsPerSampleChanged
-        {
-            get { return _onTargetBitsPerSampleChanged; }
-            private set { _onTargetBitsPerSampleChanged = value; }
-        }
-
-        [SerializeField] private BitsPerSample _targetBitsPerSample = BitsPerSample.Bits32;
-        /// <summary>
-        /// The sample format sent to the ASIO driver (16-bit integer or 32-bit float). Changing it at runtime reconnects the driver.
-        /// </summary>
+        /// <summary>The sample format sent to NAudio (ASIO Audio Settings). Changing it reconnects.</summary>
         public BitsPerSample TargetBitsPerSample
         {
-            get { return _targetBitsPerSample; }
+            get { return Settings.TargetBitsPerSample; }
             set
             {
-                if (_targetBitsPerSample == value) return;
-                _targetBitsPerSample = value;
+                if (Settings.TargetBitsPerSample == value) return;
+                Settings.TargetBitsPerSample = value;
                 ApplyConfigurationChange();
-                if (OnTargetBitsPerSampleChanged != null)
-                    OnTargetBitsPerSampleChanged.Invoke();
+                OnTargetBitsPerSampleChanged.Invoke();
             }
         }
 
-        [SerializeField][ReadOnly] private int _asioDriverInputChannelCount;
-        public int AsioDriverInputChannelCount
+        /// <summary>Volume applied to all sources, after their own volume (linear gain, 0 to 1; ASIO Audio Settings). Applied live and smoothly.</summary>
+        public float MasterVolume
         {
-            get { return _asioDriverInputChannelCount; }
-            private set { _asioDriverInputChannelCount = value; }
+            get { return Settings.MasterVolume; }
+            set
+            {
+                Settings.MasterVolume = value;
+                if (_mixer != null) _mixer.MasterVolume = Settings.MasterVolume;
+            }
         }
 
-        [SerializeField][ReadOnly] private int _asioDriverOutputChannelCount;
-        /// <summary>
-        /// Number of output channels exposed by the ASIO driver. Each ASIO Audio Source targets one of these.
-        /// </summary>
-        public int AsioDriverOutputChannelCount
+        /// <summary>The master volume in decibels (0 dB: unchanged; negative infinity: silence).</summary>
+        public float MasterVolumeDecibels
         {
-            get { return _asioDriverOutputChannelCount; }
-            private set { _asioDriverOutputChannelCount = value; }
+            get { return AsioVolume.ToDecibels(MasterVolume); }
+            set { MasterVolume = AsioVolume.ToLinear(value); }
         }
 
-        [SerializeField][ReadOnly] private string _asioDriverSampleFormat = "";
-        /// <summary>
-        /// The sample format the ASIO driver works with, e.g. "24-bit integer" (empty until connected). The mix is converted to it, whatever TargetBitsPerSample is.
-        /// </summary>
-        public string AsioDriverSampleFormat
+        /// <summary>Whether the in-game overlay is shown (ASIO Audio Settings). Toggled at runtime with OverlayToggleKey.</summary>
+        public bool DisplayInfoOnGameWindow
         {
-            get { return _asioDriverSampleFormat; }
-            private set { _asioDriverSampleFormat = value; }
+            get { return Settings.DisplayInfoOnGameWindow; }
+            set { Settings.DisplayInfoOnGameWindow = value; }
         }
 
-        [SerializeField][ReadOnly] private List<string> _asioDriverOutputChannelNames = new List<string>();
-        /// <summary>
-        /// Names of the ASIO driver's output channels, as given by the driver (e.g. "ReaRoute 3"); index 0 is channel 1. Empty until connected.
-        /// </summary>
+        /// <summary>The key that shows or hides the in-game overlay (ASIO Audio Settings).</summary>
+        public KeyCode OverlayToggleKey
+        {
+            get { return Settings.OverlayToggleKey; }
+            set { Settings.OverlayToggleKey = value; }
+        }
+
+        /// <summary>The size of the in-game overlay (ASIO Audio Settings).</summary>
+        public float OverlayScale
+        {
+            get { return Settings.OverlayScale; }
+            set { Settings.OverlayScale = value; }
+        }
+
+        /// <summary>The saved mixer snapshots (ASIO Audio Settings).</summary>
+        public List<AsioMixerSnapshot> Snapshots => Settings.Snapshots;
+
+        // ---------- Driver state ----------
+
+        public int AsioDriverInputChannelCount { get; private set; }
+
+        /// <summary>Number of output channels exposed by the ASIO driver. Each ASIO Audio Source targets one of these.</summary>
+        public int AsioDriverOutputChannelCount { get; private set; }
+
+        /// <summary>The sample format the ASIO driver works with, e.g. "24-bit integer" (empty until connected).</summary>
+        public string AsioDriverSampleFormat { get; private set; } = "";
+
+        private List<string> _asioDriverOutputChannelNames = new List<string>();
+        /// <summary>Names of the ASIO driver's output channels (e.g. "ReaRoute 3"); index 0 is channel 1. Empty until connected.</summary>
         public IReadOnlyList<string> AsioDriverOutputChannelNames => _asioDriverOutputChannelNames;
 
         /// <summary>The driver's name of an output channel (1-based), or an empty string if unknown.</summary>
@@ -129,115 +211,62 @@ namespace AsioAudioUnity
             return channel >= 1 && channel <= _asioDriverOutputChannelNames.Count ? _asioDriverOutputChannelNames[channel - 1] : "";
         }
 
-        [SerializeField][Range(0f, 1f)] private float _masterVolume = 1f;
-        /// <summary>
-        /// Volume applied to all sources (linear gain, 0 to 1, like Volume on the sources), after their own volume. Applied live and smoothly.
-        /// </summary>
-        public float MasterVolume
-        {
-            get { return _masterVolume; }
-            set
-            {
-                _masterVolume = Mathf.Clamp01(value);
-                if (_mixer != null) _mixer.MasterVolume = _masterVolume;
-            }
-        }
-
-        /// <summary>
-        /// The master volume in decibels (0 dB: unchanged; negative infinity: silence).
-        /// </summary>
-        public float MasterVolumeDecibels
-        {
-            get { return AsioVolume.ToDecibels(MasterVolume); }
-            set { MasterVolume = AsioVolume.ToLinear(value); }
-        }
-
-        /// <summary>
-        /// Output level sent to the ASIO driver (peak of all channels, 0 to 1, after the master volume), with a meter-like falloff. Updated every frame while connected.
-        /// </summary>
+        /// <summary>Output level sent to the ASIO driver (peak of all channels, 0 to 1, after the master volume), with a meter-like falloff.</summary>
         public float MasterMeterLevel { get; private set; }
 
-        [SerializeField] private List<AsioMixerSnapshot> _snapshots = new List<AsioMixerSnapshot>();
         /// <summary>
-        /// The saved mixer snapshots (master volume, and volume / mute / solo of each source). See SaveSnapshot and RecallSnapshot.
+        /// How many frames the ASIO driver has asked for since it was connected. Stays at 0 when the driver is connected but doesn't process audio
+        /// (with ReaRoute: REAPER isn't running, or its audio device is closed).
         /// </summary>
-        public List<AsioMixerSnapshot> Snapshots => _snapshots;
+        public long RenderedFrames => _mixer?.RenderedFrames ?? 0;
 
-        [SerializeField][ReadOnly][FormerlySerializedAs("_customAsioAudioSources")] private List<AsioAudioSource> _asioAudioSources = new List<AsioAudioSource>();
-        public List<AsioAudioSource> AsioAudioSources
-        {
-            get { return _asioAudioSources; }
-            private set { _asioAudioSources = value; }
-        }
+        private float _connectedAt;
+        private bool _notProcessingWarned;
 
-        [SerializeField] public bool _displayInfoOnGameWindow = true;
-        /// <summary>
-        /// Whether the in-game overlay (driver status and settings, source controls) is shown. Toggled at runtime with OverlayToggleKey.
-        /// </summary>
-        public bool DisplayInfoOnGameWindow
-        {
-            get { return _displayInfoOnGameWindow; }
-            set { _displayInfoOnGameWindow = value; }
-        }
+        /// <summary>The ASIO Audio Sources playing through this manager.</summary>
+        public List<AsioAudioSource> AsioAudioSources { get; } = new List<AsioAudioSource>();
 
-        [SerializeField] private KeyCode _overlayToggleKey = KeyCode.F9;
-        /// <summary>
-        /// Key that shows or hides the in-game overlay (None: no key).
-        /// </summary>
-        public KeyCode OverlayToggleKey
-        {
-            get { return _overlayToggleKey; }
-            set { _overlayToggleKey = value; }
-        }
+        public AsioOut AsioOutPlayer { get; private set; }
 
-        [SerializeField][Range(0.5f, 3f)] private float _overlayScale = 1f;
-        /// <summary>
-        /// Size of the in-game overlay (e.g. 2 on a 4K screen).
-        /// </summary>
-        public float OverlayScale
-        {
-            get { return _overlayScale; }
-            set { _overlayScale = Mathf.Clamp(value, 0.5f, 3f); }
-        }
+        /// <summary>True when the ASIO driver is connected and playing.</summary>
+        public bool IsConnected => AsioOutPlayer != null;
 
         private AsioAudioManagerOverlay _overlay;
-
-        private AsioOut _asioOutPlayer;
-        public AsioOut AsioOutPlayer
-        {
-            get { return _asioOutPlayer; }
-            private set { _asioOutPlayer = value; }
-        }
-
-        /// <summary>
-        /// True when the ASIO driver is connected and playing.
-        /// </summary>
-        public bool IsConnected => AsioOutPlayer != null;
 
         // Mixes all sources into one stream for the driver. Only exists while connected.
         private AsioMixer _mixer;
 
-        // The configuration of the last connection attempt, to detect changes made from the Inspector (which bypass the property setters).
+        // The configuration of the last connection attempt, to detect changes (Project Settings, overlay...).
         private string _attemptedDriverName;
         private int _attemptedSampleRate;
         private BitsPerSample _attemptedBitsPerSample;
 
+        // ---------- Lifecycle ----------
+
         private void Awake()
         {
-            OnAsioDriverNameChanged ??= new UnityEvent();
-            OnTargetSampleRateChanged ??= new UnityEvent();
-            OnTargetBitsPerSampleChanged ??= new UnityEvent();
-            AsioAudioSources ??= new List<AsioAudioSource>();
+            if (_instance != null && _instance != this)
+            {
+                // Another manager already runs (e.g. kept from a previous scene): this one (an old scene manager) is not needed.
+                Destroy(this);
+                return;
+            }
+            _instance = this;
         }
 
         private void OnEnable()
         {
-            Connect();
+            if (_instance == this) Connect();
+        }
+
+        private void OnDestroy()
+        {
+            if (_instance == this) _instance = null;
+            if (_legacySettings != null) Destroy(_legacySettings);
         }
 
         private void Update()
         {
-            // Settings edited in the Inspector during Play mode don't go through the property setters.
             if (_attemptedDriverName != AsioDriverName || _attemptedSampleRate != TargetSampleRate || _attemptedBitsPerSample != TargetBitsPerSample)
             {
                 Reconnect();
@@ -247,9 +276,17 @@ namespace AsioAudioUnity
 
             if (_mixer != null)
             {
-                _mixer.MasterVolume = _masterVolume; // Also picks up Inspector edits
+                _mixer.MasterVolume = MasterVolume; // Also picks up edits made in Project Settings or the ASIO Audio Mixer
                 // Falls by 20 dB per second
                 MasterMeterLevel = Mathf.Max(_mixer.ConsumeMasterPeak(), MasterMeterLevel * Mathf.Pow(0.1f, Time.unscaledDeltaTime));
+
+                if (!_notProcessingWarned && _mixer.RenderedFrames == 0 && Time.realtimeSinceStartup - _connectedAt > 2f)
+                {
+                    _notProcessingWarned = true;
+                    Debug.LogWarning("ASIO Audio Manager: the ASIO driver \"" + AsioDriverName + "\" is connected but isn't asking for audio, so nothing can be heard. "
+                        + "With ReaRoute, REAPER must be running with its audio device open (check that REAPER isn't set to close the audio device when inactive or stopped, "
+                        + "in Preferences > Audio). With another driver, check that no other application holds it.");
+                }
             }
             else
             {
@@ -287,14 +324,14 @@ namespace AsioAudioUnity
             if (Application.isPlaying && isActiveAndEnabled) Reconnect();
         }
 
-        /// <summary>
-        /// Disconnects from the ASIO driver and connects again with the current settings. Sources keep their state and position.
-        /// </summary>
+        /// <summary>Disconnects from the ASIO driver and connects again with the current settings. Sources keep their state and position.</summary>
         public void Reconnect()
         {
             Disconnect();
             Connect();
         }
+
+        // ---------- Connection ----------
 
         /// <summary>
         /// Connects to the ASIO driver set in AsioDriverName, and starts playing the mix of all registered sources.
@@ -310,7 +347,7 @@ namespace AsioAudioUnity
 
             if (string.IsNullOrEmpty(AsioDriverName))
             {
-                Debug.LogError("ASIO Audio Manager: no ASIO driver name is set. Available drivers: " + GetAvailableDriverNamesText());
+                Debug.LogError("ASIO Audio Manager: no ASIO driver is set: choose one in Project Settings > ASIO Audio. Available drivers: " + GetAvailableDriverNamesText());
                 return false;
             }
 
@@ -339,7 +376,7 @@ namespace AsioAudioUnity
                 }
 
                 // Use all the driver's outputs, so any source can target any channel without reconnecting.
-                AsioMixer mixer = new AsioMixer(TargetSampleRate, AsioDriverOutputChannelCount) { MasterVolume = _masterVolume };
+                AsioMixer mixer = new AsioMixer(TargetSampleRate, AsioDriverOutputChannelCount) { MasterVolume = MasterVolume };
                 foreach (AsioAudioSource asioAudioSource in AsioAudioSources)
                 {
                     if (asioAudioSource == null || asioAudioSource.Voice == null) continue;
@@ -360,15 +397,18 @@ namespace AsioAudioUnity
 
                 IWaveProvider output = use16Bits ? mixer.ToWaveProvider16() : mixer.ToWaveProvider();
                 asioOut.Init(output);
+                asioOut.PlaybackStopped += OnAsioPlaybackStopped;
                 asioOut.Play();
 
                 _mixer = mixer;
                 AsioOutPlayer = asioOut;
+                _connectedAt = Time.realtimeSinceStartup;
+                _notProcessingWarned = false;
                 Debug.Log("ASIO Audio Manager: connected to \"" + AsioDriverName + "\" (" + AsioDriverOutputChannelCount + " outputs, " + TargetSampleRate + " Hz"
                     + (string.IsNullOrEmpty(AsioDriverSampleFormat) ? "" : ", driver format: " + AsioDriverSampleFormat) + ").");
 
 #if UNITY_EDITOR
-                // Remembered so the Inspector can show them outside Play mode (keys read by AsioEditorUtility).
+                // Remembered so the editor can show them outside Play mode (keys read by AsioEditorUtility).
                 UnityEditor.EditorPrefs.SetInt("AsioAudioUnity.OutputChannelCount." + AsioDriverName, AsioDriverOutputChannelCount);
                 if (!string.IsNullOrEmpty(AsioDriverSampleFormat)) UnityEditor.EditorPrefs.SetString("AsioAudioUnity.DriverSampleFormat." + AsioDriverName, AsioDriverSampleFormat);
                 UnityEditor.EditorPrefs.SetString("AsioAudioUnity.OutputChannelNames." + AsioDriverName, string.Join("\n", _asioDriverOutputChannelNames));
@@ -383,10 +423,17 @@ namespace AsioAudioUnity
             }
         }
 
+        // [Audio thread] NAudio stops the driver when the audio callback throws: without this, the sources would just go silent.
+        private void OnAsioPlaybackStopped(object sender, StoppedEventArgs e)
+        {
+            if (e.Exception != null) Debug.LogError("ASIO Audio Manager: the ASIO driver stopped because of an error in the audio callback: " + e.Exception);
+        }
+
         private void Disconnect()
         {
             if (AsioOutPlayer != null)
             {
+                AsioOutPlayer.PlaybackStopped -= OnAsioPlaybackStopped;
                 AsioOutPlayer.Stop();
                 AsioOutPlayer.Dispose();
                 AsioOutPlayer = null;
@@ -397,7 +444,7 @@ namespace AsioAudioUnity
         private static readonly FieldInfo AsioOutDriverField = typeof(AsioOut).GetField("driver", BindingFlags.Instance | BindingFlags.NonPublic);
 
         // The sample format of the driver's first output channel (NAudio doesn't expose it publicly). Null if it can't be read.
-        private static AsioSampleType? GetDriverOutputSampleType(AsioOut asioOut)
+        internal static AsioSampleType? GetDriverOutputSampleType(AsioOut asioOut)
         {
             try
             {
@@ -408,7 +455,7 @@ namespace AsioAudioUnity
             return null;
         }
 
-        private static string DescribeSampleType(AsioSampleType? sampleType)
+        internal static string DescribeSampleType(AsioSampleType? sampleType)
         {
             switch (sampleType)
             {
@@ -429,138 +476,128 @@ namespace AsioAudioUnity
             return driverNames.Length == 0 ? "(none)" : "\"" + string.Join("\", \"", driverNames) + "\"";
         }
 
+        // ---------- Sources ----------
+
         /// <summary>
         /// Check if the ASIO Audio Source is valid, returns true if added to the list of ASIO Audio Sources, false otherwise.
         /// </summary>
-        /// <param name="asioAudioSource">The ASIO Audio Source to check.</param>
-        /// <returns></returns>
         public bool RequestAddAsioAudioSource(AsioAudioSource asioAudioSource)
         {
-            // Check if file name is empty
             if (string.IsNullOrEmpty(asioAudioSource.AudioFilePath))
             {
                 Debug.LogError("The ASIO Audio Source attached to GameObject \"" + asioAudioSource.gameObject.name + "\" doesn't have any Audio File Name specified. It will be ignored.");
             }
-            // Check if target output channel is not specified
             else if (asioAudioSource.TargetOutputChannel <= 0)
             {
                 Debug.LogError("The ASIO Audio Source attached to GameObject \"" + asioAudioSource.gameObject.name + "\" doesn't have any Target Output Channel specified. It will be ignored.");
             }
-            // Check if target output channel exists on the driver
             else if (IsConnected && asioAudioSource.TargetOutputChannel > AsioDriverOutputChannelCount)
             {
                 Debug.LogError("The ASIO Audio Source attached to GameObject \"" + asioAudioSource.gameObject.name + "\" targets output channel " + asioAudioSource.TargetOutputChannel + ", but the ASIO driver \"" + AsioDriverName + "\" only has " + AsioDriverOutputChannelCount + " output channels. It will be ignored.");
             }
-            // Check if target output channel is specified on another ASIO Audio Source
-            else if (AsioAudioSources.Any((otherAsioAudioSource) => otherAsioAudioSource != asioAudioSource && otherAsioAudioSource.TargetOutputChannel == asioAudioSource.TargetOutputChannel))
+            else if (AsioAudioSources.Any(otherAsioAudioSource => otherAsioAudioSource != asioAudioSource && otherAsioAudioSource && otherAsioAudioSource.TargetOutputChannel == asioAudioSource.TargetOutputChannel))
             {
                 Debug.LogError("The targeted output channel of the ASIO Audio Source attached to GameObject \"" + asioAudioSource.gameObject.name + "\" is already specified on another ASIO Audio Source, and needs to be unique. It will be ignored.");
             }
-            // Check if the ASIO Audio Source is already associated with another ASIO Audio Manager
-            else if (asioAudioSource.ReferencedAsioAudioManager && asioAudioSource.ReferencedAsioAudioManager != this)
-            {
-                Debug.LogError("The ASIO Audio Source attached to GameObject \"" + asioAudioSource.gameObject.name + "\" is already associated with another ASIO Audio Manager. It will be ignored.");
-            }
             else
             {
-                asioAudioSource.ReferencedAsioAudioManager = this;
                 if (!AsioAudioSources.Contains(asioAudioSource)) AsioAudioSources.Add(asioAudioSource);
                 if (_mixer != null && asioAudioSource.Voice != null) _mixer.AddVoice(asioAudioSource.Voice);
                 return true;
             }
 
-            if (asioAudioSource.ReferencedAsioAudioManager == this) asioAudioSource.ReferencedAsioAudioManager = null;
             RemoveFromMix(asioAudioSource);
             return false;
         }
 
+        /// <summary>Remove an ASIO Audio Source from the list of ASIO Audio Sources, returns true if removed, false otherwise.</summary>
+        public bool RequestRemoveAsioAudioSource(AsioAudioSource asioAudioSource)
+        {
+            if (!AsioAudioSources.Contains(asioAudioSource)) return false;
+            RemoveFromMix(asioAudioSource);
+            return true;
+        }
+
+        private void RemoveFromMix(AsioAudioSource asioAudioSource)
+        {
+            AsioAudioSources.Remove(asioAudioSource);
+            if (_mixer != null && asioAudioSource.Voice != null) _mixer.RemoveVoice(asioAudioSource.Voice);
+        }
+
         // ---------- Snapshots ----------
 
+        private static AsioAudioSource[] SourcesInLoadedScenes() => FindObjectsByType<AsioAudioSource>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+
         /// <summary>
-        /// Saves the current mix (master volume, and volume / mute / solo of every source using this manager, in the open scenes)
-        /// as a snapshot. A snapshot with the same name is replaced. Returns the snapshot.
+        /// Saves the current mix (master volume, and volume / mute / solo of every source in the loaded scenes, by output channel)
+        /// as a snapshot of the ASIO Audio Settings. A snapshot with the same name is replaced. Returns the snapshot.
         /// </summary>
         public AsioMixerSnapshot SaveSnapshot(string snapshotName)
         {
-            AsioMixerSnapshot snapshot = new AsioMixerSnapshot { Name = snapshotName, MasterVolume = MasterVolume };
-            foreach (AsioAudioSource source in FindObjectsByType<AsioAudioSource>(FindObjectsInactive.Include, FindObjectsSortMode.None))
-            {
-                if (source.ReferencedAsioAudioManager != null && source.ReferencedAsioAudioManager != this) continue;
-                snapshot.Sources.Add(new AsioMixerSnapshot.SourceSettings { Source = source, Volume = source.Volume, Mute = source.Mute, Solo = source.Solo });
-            }
-
-            int existing = _snapshots.FindIndex(other => other.Name == snapshotName);
-            if (existing >= 0) _snapshots[existing] = snapshot;
-            else _snapshots.Add(snapshot);
-            return snapshot;
+            return Settings.SaveSnapshot(snapshotName, SourcesInLoadedScenes());
         }
 
-        /// <summary>
-        /// Applies a saved snapshot: master volume, and volume / mute / solo of its sources (volume changes are smoothed while playing).
-        /// Returns false if there is no snapshot with this name.
-        /// </summary>
+        /// <summary>Applies a saved snapshot (volume changes are smoothed while playing). Returns false if there is no snapshot with this name.</summary>
         public bool RecallSnapshot(string snapshotName)
         {
-            AsioMixerSnapshot snapshot = _snapshots.Find(other => other.Name == snapshotName);
+            AsioMixerSnapshot snapshot = Snapshots.Find(other => other.Name == snapshotName);
             if (snapshot == null) return false;
-            ApplySnapshot(snapshot);
+            Settings.ApplySnapshot(snapshot, SourcesInLoadedScenes());
             return true;
         }
 
         /// <summary>Applies the snapshot at an index of Snapshots. Returns false if the index is out of range.</summary>
         public bool RecallSnapshot(int index)
         {
-            if (index < 0 || index >= _snapshots.Count) return false;
-            ApplySnapshot(_snapshots[index]);
+            if (index < 0 || index >= Snapshots.Count) return false;
+            Settings.ApplySnapshot(Snapshots[index], SourcesInLoadedScenes());
             return true;
         }
 
         /// <summary>Deletes a snapshot. Returns false if there is no snapshot with this name.</summary>
         public bool DeleteSnapshot(string snapshotName)
         {
-            return _snapshots.RemoveAll(other => other.Name == snapshotName) > 0;
-        }
-
-        private void ApplySnapshot(AsioMixerSnapshot snapshot)
-        {
-            MasterVolume = snapshot.MasterVolume;
-            foreach (AsioMixerSnapshot.SourceSettings settings in snapshot.Sources)
-            {
-                if (settings.Source == null) continue; // deleted since
-                settings.Source.Volume = settings.Volume;
-                settings.Source.Mute = settings.Mute;
-                settings.Source.Solo = settings.Solo;
-            }
+            return Snapshots.RemoveAll(other => other.Name == snapshotName) > 0;
         }
 
         // ---------- Transport of all sources ----------
 
         /// <summary>
-        /// Plays (or resumes) all the sources managed by this manager. They start on exactly the same sample,
+        /// Plays (or resumes) all the sources. They start on exactly the same sample,
         /// so files that belong together (e.g. the stems of a multichannel mix) stay in sync.
         /// </summary>
         public void PlayAll()
         {
             ForAllSourcesInSync((source, deferred) => source.Play(deferred));
+            TransportCommandIssued?.Invoke(AsioTransportCommand.Play);
         }
 
-        /// <summary>Pauses all the playing sources managed by this manager, on the same sample (so they stay in sync when resumed).</summary>
+        /// <summary>Pauses all the playing sources, on the same sample (so they stay in sync when resumed).</summary>
         public void PauseAll()
         {
             ForAllSourcesInSync((source, deferred) => source.Pause(deferred));
+            TransportCommandIssued?.Invoke(AsioTransportCommand.Pause);
         }
 
-        /// <summary>Stops all the sources managed by this manager (they go back to the start of their file), on the same sample.</summary>
+        /// <summary>Stops all the sources (they go back to the start of their file), on the same sample.</summary>
         public void StopAll()
         {
             ForAllSourcesInSync((source, deferred) => source.Stop(deferred));
+            TransportCommandIssued?.Invoke(AsioTransportCommand.Stop);
         }
 
-        /// <summary>Plays all the sources managed by this manager from the start of their file, starting on the same sample. (This doesn't trigger events.)</summary>
+        /// <summary>Plays all the sources from the start of their file, starting on the same sample. (This doesn't trigger events.)</summary>
         public void RestartAll()
         {
             ForAllSourcesInSync((source, deferred) => source.Restart(deferred));
+            TransportCommandIssued?.Invoke(AsioTransportCommand.Restart);
         }
+
+        /// <summary>
+        /// Called after PlayAll, PauseAll, StopAll or RestartAll, with the command (e.g. to mirror the transport in another application,
+        /// see the REAPER OSC plugin). Static, so it can be listened to before the manager is created.
+        /// </summary>
+        public static event Action<AsioTransportCommand> TransportCommandIssued;
 
         // The sources' transport changes are deferred, then applied together by the mixer at the start of the next audio buffer.
         private void ForAllSourcesInSync(Action<AsioAudioSource, bool> action)
@@ -579,25 +616,7 @@ namespace AsioAudioUnity
             }
         }
 
-        /// <summary>
-        /// Remove an ASIO Audio Source from the list of ASIO Audio Sources, returns true if removed, false otherwise.
-        /// </summary>
-        /// <param name="asioAudioSource">The ASIO Audio Source to remove.</param>
-        /// <returns></returns>
-        public bool RequestRemoveAsioAudioSource(AsioAudioSource asioAudioSource)
-        {
-            if (!AsioAudioSources.Contains(asioAudioSource)) return false;
-
-            asioAudioSource.ReferencedAsioAudioManager = null;
-            RemoveFromMix(asioAudioSource);
-            return true;
-        }
-
-        private void RemoveFromMix(AsioAudioSource asioAudioSource)
-        {
-            AsioAudioSources.Remove(asioAudioSource);
-            if (_mixer != null && asioAudioSource.Voice != null) _mixer.RemoveVoice(asioAudioSource.Voice);
-        }
+        // ---------- Overlay ----------
 
         private void OnGUI()
         {

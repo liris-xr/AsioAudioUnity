@@ -441,6 +441,12 @@ public class UDPPacketIO
       /// </summary>
       public event OscMessageHandler MessageReceived;
 
+      /// <summary>
+      /// Called when this OSC Manager is destroyed, just before its sockets close: the last moment to send messages
+      /// (the Spat OSC position senders use it to reset their positions).
+      /// </summary>
+      public event Action<OSC> Closing;
+
       Hashtable AddressTable;
 
 	ArrayList messagesReceived;
@@ -502,11 +508,9 @@ public class UDPPacketIO
         UnityEditor.EditorApplication.playModeStateChanged -= HandleOnPlayModeChanged;
 #endif
 
-        ObjectPositionOsc[] objectPositionsOsc = FindObjectsByType<ObjectPositionOsc>(FindObjectsSortMode.None);
-        foreach (ObjectPositionOsc objectPositionOsc in objectPositionsOsc)
-        {
-            if (objectPositionOsc.Osc == this) objectPositionOsc.SendResetPositionOsc();
-        }
+        // Last messages before the sockets close (e.g. the Spat OSC position senders reset their positions).
+        try { Closing?.Invoke(this); }
+        catch (Exception e) { Debug.LogException(e); }
         Close();
 	}
 

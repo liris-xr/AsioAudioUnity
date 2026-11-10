@@ -206,6 +206,30 @@ namespace AsioAudioUnity
         /// <summary>True while the waveform is being analysed or the mouse is over it: the Inspector should repaint.</summary>
         public bool NeedsRepaint { get; private set; }
 
+        // ---------- Fades (drawn like REAPER's item fades, with draggable handles) ----------
+
+        private static readonly int FadeHandleHash = "AsioWaveformFadeHandle".GetHashCode();
+        private int _draggedFade; // 0: none, 1: fade-in, 2: fade-out, 3: loop crossfade
+
+        /// <summary>Draws the fade-in (from the start of the file) and fade-out (to its end) curves, with draggable handles.</summary>
+        public bool ShowFades { get; set; }
+        public float FadeInSeconds { get; set; }
+        public float FadeOutSeconds { get; set; }
+        /// <summary>Whether the fade-out also applies at the end of the file (not when looping): otherwise it is drawn dimmed (it only applies to Stop and Pause).</summary>
+        public bool FadeOutAtEnd { get; set; } = true;
+        public AsioFadeCurve FadeInCurve { get; set; } = AsioFadeCurve.Squared;
+        public AsioFadeCurve FadeOutCurve { get; set; } = AsioFadeCurve.Squared;
+        /// <summary>The smooth loop's crossfade (drawn over the end of the file, with a handle at the bottom), or 0 for none (no handle: set it only when looping).</summary>
+        public float LoopCrossfadeSeconds { get; set; }
+        /// <summary>Whether the loop crossfade handle is shown (when looping).</summary>
+        public bool ShowLoopCrossfade => ShowFades && !FadeOutAtEnd;
+        /// <summary>True after Draw when the user dragged a fade handle or picked a curve: read FadeInSeconds, FadeOutSeconds, FadeInCurve, FadeOutCurve and LoopCrossfadeSeconds.</summary>
+        public bool FadesChanged { get; private set; }
+
+        // A curve picked in the right-click menu (applied on the next Draw, since the menu answers outside of it). -1: none.
+        private int _pickedFadeInCurve = -1;
+        private int _pickedFadeOutCurve = -1;
+
         public void Dispose()
         {
             if (_texture != null) UnityEngine.Object.DestroyImmediate(_texture);
@@ -218,6 +242,10 @@ namespace AsioAudioUnity
         public double Draw(WaveformData data, double currentSeconds, bool showPlayhead, bool isAdvancing, bool canSeek, Color playedColor)
         {
             NeedsRepaint = false;
+            FadesChanged = false;
+            if (_pickedFadeInCurve >= 0) { FadeInCurve = (AsioFadeCurve)_pickedFadeInCurve; FadesChanged = true; }
+            if (_pickedFadeOutCurve >= 0) { FadeOutCurve = (AsioFadeCurve)_pickedFadeOutCurve; FadesChanged = true; }
+            _pickedFadeInCurve = _pickedFadeOutCurve = -1;
             EnsureStyles();
 
             if (data != _viewedData)
@@ -270,6 +298,8 @@ namespace AsioAudioUnity
             }
             _viewStart = Math.Max(0, Math.Min(_viewStart, length - visible));
 
+            // Fade handles first, so dragging them doesn't seek
+            HandleFadeInput(graph, length, visible, currentEvent);
             double seekTo = HandleInput(graph, data, length, ref visible, maxZoom, canSeek, currentEvent);
 
             // Scrollbar (time)
@@ -306,12 +336,14 @@ namespace AsioAudioUnity
                 }
                 GUI.color = previousColor;
 
+                if (ShowFades) DrawFades(graph, length, visible);
+
                 if (showPlayhead && playheadX >= graph.x && playheadX <= graph.xMax)
                 {
                     EditorGUI.DrawRect(new Rect(playheadX - 1f, graph.y, 2f, graph.height + 4f), EditorGUIUtility.isProSkin ? Color.white : Color.black);
                 }
 
-                DrawHover(graph, data, visible, decibels);
+                if (_draggedFade == 0) DrawHover(graph, data, visible, decibels);
             }
 
             // Tooltip with the controls
@@ -319,6 +351,251 @@ namespace AsioAudioUnity
 
             return seekTo;
         }
+
+        // ---------- Fades ----------
+
+        private float TimeToX(Rect graph, double seconds, double visible) => graph.x + (float)((seconds - _viewStart) / visible) * graph.width;
+
+        private void GetFadeHandles(Rect graph, double length, double visible, out Rect fadeInHandle, out Rect fadeOutHandle)
+        {
+            float fadeInX = TimeToX(graph, Math.Min(FadeInSeconds, length), visible);
+            float fadeOutX = TimeToX(graph, Math.Max(0, length - FadeOutSeconds), visible);
+            fadeInHandle = new Rect(Mathf.Round(fadeInX) - 5f, graph.y + 1f, 10f, 10f);
+            fadeOutHandle = new Rect(Mathf.Round(fadeOutX) - 5f, graph.y + 1f, 10f, 10f);
+        }
+
+        private Rect GetLoopCrossfadeHandle(Rect graph, double length, double visible)
+        {
+            float x = TimeToX(graph, Math.Max(0, length - Math.Min(LoopCrossfadeSeconds, length / 2)), visible);
+            return new Rect(Mathf.Round(x) - 5f, graph.yMax - 11f, 10f, 10f);
+        }
+
+        private void HandleFadeInput(Rect graph, double length, double visible, Event currentEvent)
+        {
+            if (!ShowFades) return;
+            int controlId = GUIUtility.GetControlID(FadeHandleHash, FocusType.Passive, graph);
+            GetFadeHandles(graph, length, visible, out Rect fadeInHandle, out Rect fadeOutHandle);
+            bool fadeInVisible = fadeInHandle.center.x >= graph.x - 5f && fadeInHandle.center.x <= graph.xMax + 5f;
+            bool fadeOutVisible = fadeOutHandle.center.x >= graph.x - 5f && fadeOutHandle.center.x <= graph.xMax + 5f;
+            if (fadeInVisible) EditorGUIUtility.AddCursorRect(fadeInHandle, MouseCursor.ResizeHorizontal);
+            if (fadeOutVisible) EditorGUIUtility.AddCursorRect(fadeOutHandle, MouseCursor.ResizeHorizontal);
+            Rect loopHandle = GetLoopCrossfadeHandle(graph, length, visible);
+            bool loopVisible = ShowLoopCrossfade && loopHandle.center.x >= graph.x - 5f && loopHandle.center.x <= graph.xMax + 5f;
+            if (loopVisible) EditorGUIUtility.AddCursorRect(loopHandle, MouseCursor.ResizeHorizontal);
+
+            switch (currentEvent.GetTypeForControl(controlId))
+            {
+                case EventType.MouseDown when currentEvent.button == 1:
+                {
+                    // Right-click on a fade (its handle or its area): choose its curve, like in REAPER
+                    if (!graph.Contains(currentEvent.mousePosition)) break;
+                    double clickedSeconds = _viewStart + (currentEvent.mousePosition.x - graph.x) / graph.width * visible;
+                    int fade = fadeInHandle.Contains(currentEvent.mousePosition) || clickedSeconds <= FadeInSeconds ? 1
+                        : fadeOutHandle.Contains(currentEvent.mousePosition) || clickedSeconds >= length - FadeOutSeconds ? 2 : 0;
+                    if (fade == 0) break;
+                    currentEvent.Use();
+                    ShowFadeCurveMenu(fade == 1);
+                    break;
+                }
+
+                case EventType.MouseDown:
+                    if (currentEvent.button != 0) break;
+                    int handle = fadeInVisible && fadeInHandle.Contains(currentEvent.mousePosition) ? 1 : fadeOutVisible && fadeOutHandle.Contains(currentEvent.mousePosition) ? 2
+                        : loopVisible && loopHandle.Contains(currentEvent.mousePosition) ? 3 : 0;
+                    if (handle == 0) break;
+                    currentEvent.Use();
+                    if (currentEvent.clickCount == 2)
+                    {
+                        // Double-click: no fade
+                        if (handle == 1) FadeInSeconds = 0f; else if (handle == 2) FadeOutSeconds = 0f; else LoopCrossfadeSeconds = 0f;
+                        FadesChanged = true;
+                        break;
+                    }
+                    _draggedFade = handle;
+                    GUIUtility.hotControl = controlId;
+                    break;
+
+                case EventType.MouseDrag:
+                    if (GUIUtility.hotControl != controlId || _draggedFade == 0) break;
+                    currentEvent.Use();
+                    double seconds = _viewStart + Mathf.Clamp01((currentEvent.mousePosition.x - graph.x) / graph.width) * visible;
+                    if (_draggedFade == 1) FadeInSeconds = (float)Math.Round(Math.Max(0, Math.Min(seconds, length - FadeOutSeconds)), 2);
+                    else if (_draggedFade == 2) FadeOutSeconds = (float)Math.Round(Math.Max(0, Math.Min(length - seconds, length - FadeInSeconds)), 2);
+                    else LoopCrossfadeSeconds = (float)Math.Round(Math.Max(0, Math.Min(length - seconds, length / 2)), 2);
+                    FadesChanged = true;
+                    NeedsRepaint = true;
+                    break;
+
+                case EventType.MouseUp:
+                    if (GUIUtility.hotControl != controlId) break;
+                    GUIUtility.hotControl = 0;
+                    _draggedFade = 0;
+                    currentEvent.Use();
+                    break;
+            }
+        }
+
+        // Fade curves (the gain, with each fade's curve), the attenuated area shaded above them, and the handles at the top.
+        private void DrawFades(Rect graph, double length, double visible)
+        {
+            bool pro = EditorGUIUtility.isProSkin;
+            Color line = pro ? new Color(1f, 1f, 1f, 0.9f) : new Color(0f, 0f, 0f, 0.8f);
+            Color shade = pro ? new Color(0f, 0f, 0f, 0.45f) : new Color(1f, 1f, 1f, 0.5f);
+            Color accent = pro ? new Color(0.35f, 0.6f, 0.95f) : new Color(0.25f, 0.5f, 0.9f);
+
+            DrawFadeCurve(graph, visible, 0, Math.Min(FadeInSeconds, length), true, FadeInCurve, line, shade);
+            Color fadeOutLine = FadeOutAtEnd ? line : new Color(line.r, line.g, line.b, line.a * 0.4f);
+            Color fadeOutShade = FadeOutAtEnd ? shade : new Color(shade.r, shade.g, shade.b, shade.a * 0.4f);
+            DrawFadeCurve(graph, visible, Math.Max(0, length - FadeOutSeconds), length, false, FadeOutCurve, fadeOutLine, fadeOutShade);
+
+            GetFadeHandles(graph, length, visible, out Rect fadeInHandle, out Rect fadeOutHandle);
+            DrawFadeHandle(graph, fadeInHandle, _draggedFade == 1 ? accent : line, FadeInSeconds > 0f || _draggedFade == 1 ? "Fade in " + FormatSeconds(FadeInSeconds) : null, true);
+            DrawFadeHandle(graph, fadeOutHandle, _draggedFade == 2 ? accent : fadeOutLine,
+                FadeOutSeconds > 0f || _draggedFade == 2 ? "Fade out " + FormatSeconds(FadeOutSeconds) + (FadeOutAtEnd ? "" : " (Stop / Pause)") : null, false);
+
+            if (ShowLoopCrossfade) DrawLoopCrossfade(graph, length, visible, _draggedFade == 3 ? accent : line, accent);
+        }
+
+        // The smooth loop: the end of the file fading out and its start fading in (equal power) over the end, and where each loop continues.
+        private void DrawLoopCrossfade(Rect graph, double length, double visible, Color handleColor, Color accent)
+        {
+            double crossfade = Math.Min(LoopCrossfadeSeconds, length / 2);
+            Rect handle = GetLoopCrossfadeHandle(graph, length, visible);
+            if (crossfade > 0)
+            {
+                double start = length - crossfade;
+                double visibleStart = Math.Max(start, _viewStart), visibleEnd = Math.Min(length, _viewStart + visible);
+                if (visibleEnd > visibleStart)
+                {
+                    float fromX = TimeToX(graph, visibleStart, visible), toX = TimeToX(graph, visibleEnd, visible);
+                    EditorGUI.DrawRect(new Rect(fromX, graph.y, toX - fromX, graph.height), new Color(accent.r, accent.g, accent.b, 0.1f));
+
+                    const int segments = 48;
+                    Vector3[] fadingOut = new Vector3[segments + 1], fadingIn = new Vector3[segments + 1];
+                    for (int i = 0; i <= segments; i++)
+                    {
+                        double seconds = visibleStart + (visibleEnd - visibleStart) * i / segments;
+                        double angle = (seconds - start) / crossfade * (Math.PI / 2);
+                        float x = TimeToX(graph, seconds, visible);
+                        fadingOut[i] = new Vector3(x, graph.yMax - (float)Math.Cos(angle) * graph.height, 0f);
+                        fadingIn[i] = new Vector3(x, graph.yMax - (float)Math.Sin(angle) * graph.height, 0f);
+                    }
+                    Color previous = Handles.color;
+                    Handles.color = accent;
+                    Handles.DrawAAPolyLine(2f, fadingOut);
+                    Handles.DrawAAPolyLine(2f, fadingIn);
+                    Handles.color = previous;
+                }
+
+                // Where each loop continues (the end of the start's fade-in)
+                float loopStartX = TimeToX(graph, crossfade, visible);
+                if (loopStartX >= graph.x && loopStartX <= graph.xMax)
+                {
+                    EditorGUI.DrawRect(new Rect(Mathf.Round(loopStartX), graph.y, 1f, graph.height), new Color(accent.r, accent.g, accent.b, 0.8f));
+                    GUIContent content = new GUIContent("Loop continues here");
+                    Vector2 size = _hoverLabelStyle.CalcSize(content);
+                    Rect labelRect = new Rect(Mathf.Min(loopStartX + 3f, graph.xMax - size.x), graph.yMax - 15f, size.x, 14f);
+                    EditorGUI.DrawRect(labelRect, EditorGUIUtility.isProSkin ? new Color(0f, 0f, 0f, 0.55f) : new Color(1f, 1f, 1f, 0.7f));
+                    GUI.Label(labelRect, content, _hoverLabelStyle);
+                }
+            }
+
+            DrawFadeHandle(graph, handle, handleColor, crossfade > 0 || _draggedFade == 3 ? "Loop crossfade " + FormatSeconds((float)crossfade) : null, false);
+        }
+
+        private static readonly (AsioFadeCurve curve, string name)[] FadeCurveNames =
+        {
+            (AsioFadeCurve.Squared, "Squared (default)"),
+            (AsioFadeCurve.Linear, "Linear"),
+            (AsioFadeCurve.InvertedSquared, "Inverted Squared"),
+            (AsioFadeCurve.SCurve, "S-Curve"),
+        };
+
+        public static string GetFadeCurveName(AsioFadeCurve curve)
+        {
+            foreach ((AsioFadeCurve c, string name) in FadeCurveNames) if (c == curve) return name;
+            return curve.ToString();
+        }
+
+        private void ShowFadeCurveMenu(bool fadeIn)
+        {
+            GenericMenu menu = new GenericMenu();
+            AsioFadeCurve current = fadeIn ? FadeInCurve : FadeOutCurve;
+            menu.AddDisabledItem(new GUIContent(fadeIn ? "Fade-in curve" : "Fade-out curve"));
+            menu.AddSeparator("");
+            foreach ((AsioFadeCurve curve, string name) in FadeCurveNames)
+            {
+                menu.AddItem(new GUIContent(name), curve == current, () =>
+                {
+                    if (fadeIn) _pickedFadeInCurve = (int)curve; else _pickedFadeOutCurve = (int)curve;
+                    UnityEditorInternal.InternalEditorUtility.RepaintAllViews();
+                });
+            }
+            menu.AddSeparator("");
+            menu.AddItem(new GUIContent("Apply to both fades"), false, () =>
+            {
+                _pickedFadeInCurve = _pickedFadeOutCurve = (int)current;
+                UnityEditorInternal.InternalEditorUtility.RepaintAllViews();
+            });
+            menu.ShowAsContext();
+        }
+
+        private void DrawFadeCurve(Rect graph, double visible, double start, double end, bool rising, AsioFadeCurve curve, Color line, Color shade)
+        {
+            double duration = end - start;
+            if (duration <= 0) return;
+
+            // Only the visible part
+            double visibleStart = Math.Max(start, _viewStart), visibleEnd = Math.Min(end, _viewStart + visible);
+            if (visibleEnd <= visibleStart) return;
+
+            float Gain(double seconds)
+            {
+                double x = rising ? (seconds - start) / duration : (end - seconds) / duration;
+                return AsioFadeCurves.Evaluate(curve, (float)x);
+            }
+
+            float fromX = TimeToX(graph, visibleStart, visible), toX = TimeToX(graph, visibleEnd, visible);
+
+            // Shaded attenuation, above the curve
+            for (float x = fromX; x < toX; x += 2f)
+            {
+                double seconds = _viewStart + (x - graph.x) / graph.width * visible;
+                float curveY = graph.yMax - Gain(seconds) * graph.height;
+                EditorGUI.DrawRect(new Rect(x, graph.y, Mathf.Min(2f, toX - x), curveY - graph.y), shade);
+            }
+
+            // The curve
+            const int segments = 48;
+            Vector3[] points = new Vector3[segments + 1];
+            for (int i = 0; i <= segments; i++)
+            {
+                double seconds = visibleStart + (visibleEnd - visibleStart) * i / segments;
+                points[i] = new Vector3(TimeToX(graph, seconds, visible), graph.yMax - Gain(seconds) * graph.height, 0f);
+            }
+            Color previous = Handles.color;
+            Handles.color = line;
+            Handles.DrawAAPolyLine(2f, points);
+            Handles.color = previous;
+        }
+
+        private void DrawFadeHandle(Rect graph, Rect handle, Color color, string label, bool labelOnRight)
+        {
+            if (handle.center.x < graph.x - 5f || handle.center.x > graph.xMax + 5f) return;
+            EditorGUI.DrawRect(handle, color);
+            EditorGUI.DrawRect(new Rect(handle.x + 2f, handle.y + 2f, handle.width - 4f, handle.height - 4f), EditorGUIUtility.isProSkin ? new Color(0.13f, 0.13f, 0.13f) : new Color(0.72f, 0.72f, 0.72f));
+            if (label == null) return;
+
+            GUIContent content = new GUIContent(label);
+            Vector2 size = _hoverLabelStyle.CalcSize(content);
+            float x = labelOnRight ? handle.xMax + 2f : handle.x - 2f - size.x;
+            x = Mathf.Clamp(x, graph.x, graph.xMax - size.x);
+            Rect labelRect = new Rect(x, handle.y - 2f, size.x, 14f);
+            EditorGUI.DrawRect(labelRect, EditorGUIUtility.isProSkin ? new Color(0f, 0f, 0f, 0.55f) : new Color(1f, 1f, 1f, 0.7f));
+            GUI.Label(labelRect, content, _hoverLabelStyle);
+        }
+
+        private static string FormatSeconds(float seconds) => seconds.ToString(seconds < 10f ? "0.00" : "0.0", CultureInfo.InvariantCulture) + " s";
 
         // ---------- Toolbar ----------
 

@@ -7,6 +7,7 @@ namespace AsioAudioUnity
 {
     /// <summary>
     /// Menu items to create and convert ASIO Audio Unity objects in the scene. All operations can be undone.
+    /// (The OSC library, and the Spat OSC and REAPER OSC plugins, add their own menu items.)
     /// </summary>
     public static class GlobalAsioAudioEditor
     {
@@ -67,30 +68,8 @@ namespace AsioAudioUnity
             EditorUtility.SetDirty(asioAudioSource);
         }
 
-        static void AddSourcePositionOsc(AsioAudioSource asioAudioSource)
-        {
-            if (asioAudioSource == null) return;
-
-            OSC oscManager = Object.FindFirstObjectByType<OSC>();
-
-            if (!oscManager)
-            {
-                Debug.LogError("No OSC Manager found in scene. Please add an OSC Manager to the scene before adding Source Position OSC to ASIO Audio Sources.");
-                return;
-            }
-            if (asioAudioSource.GetComponent<SourcePositionOsc>() != null)
-            {
-                Debug.LogWarning("Source Position OSC already attached to ASIO Audio Source " + asioAudioSource.name + ".");
-                return;
-            }
-
-            SourcePositionOsc sourcePositionOsc = Undo.AddComponent<SourcePositionOsc>(asioAudioSource.gameObject);
-            sourcePositionOsc.Osc = oscManager;
-            sourcePositionOsc.Index = asioAudioSource.TargetOutputChannel;
-            EditorUtility.SetDirty(sourcePositionOsc);
-        }
-
-        static GameObject CreateGameObjectInScene(string name, MenuCommand menuCommand)
+        /// <summary>Creates an empty GameObject (child of the context object, if any), with Undo, and selects it.</summary>
+        public static GameObject CreateGameObjectInScene(string name, MenuCommand menuCommand)
         {
             GameObject go = new GameObject(name);
             GameObjectUtility.SetParentAndAlign(go, menuCommand.context as GameObject);
@@ -99,17 +78,13 @@ namespace AsioAudioUnity
             return go;
         }
 
-        static void CreateAsioAudioSource(MenuCommand menuCommand, bool addSourcePositionOsc)
+        /// <summary>Creates a GameObject with an ASIO Audio Source on the lowest free output channel (with Undo).</summary>
+        public static AsioAudioSource CreateAsioAudioSourceInScene(MenuCommand menuCommand)
         {
-            int undoGroup = Undo.GetCurrentGroup();
-
             GameObject go = CreateGameObjectInScene("ASIO Audio Source", menuCommand);
             AsioAudioSource asioAudioSource = Undo.AddComponent<AsioAudioSource>(go);
-
             DefineAsioAudioSourceOutputChannel(asioAudioSource);
-            if (addSourcePositionOsc) AddSourcePositionOsc(asioAudioSource);
-
-            Undo.CollapseUndoOperations(undoGroup);
+            return asioAudioSource;
         }
 
         [MenuItem("AsioAudioUnity/Convert selected Audio Source(s) to ASIO Audio Source(s)", false, 1)]
@@ -132,26 +107,6 @@ namespace AsioAudioUnity
             return Selection.gameObjects.Length > 0 && Selection.gameObjects.All(selectedGameObject => selectedGameObject.GetComponent<AudioSource>() != null);
         }
 
-        [MenuItem("AsioAudioUnity/Add Source Position OSC to selected ASIO Audio Source(s)", false, 2)]
-        static void AddSourcePositionOscToSelected()
-        {
-            int undoGroup = Undo.GetCurrentGroup();
-            Undo.SetCurrentGroupName("Add Source Position OSC");
-
-            foreach (GameObject selectedGameObject in Selection.gameObjects)
-            {
-                AddSourcePositionOsc(selectedGameObject.GetComponent<AsioAudioSource>());
-            }
-
-            Undo.CollapseUndoOperations(undoGroup);
-        }
-
-        [MenuItem("AsioAudioUnity/Add Source Position OSC to selected ASIO Audio Source(s)", true)]
-        static bool ValidateAddSourcePositionOscToSelected()
-        {
-            return Selection.gameObjects.Length > 0 && Selection.gameObjects.All(selectedGameObject => selectedGameObject.GetComponent<AsioAudioSource>() != null);
-        }
-
         [MenuItem("AsioAudioUnity/Convert all Audio Sources in scene to ASIO Audio Sources", false, 21)]
         static void ConvertAllAudioSources()
         {
@@ -170,65 +125,18 @@ namespace AsioAudioUnity
             else Debug.LogWarning(remainingAudioSources + " Audio Source(s) in scene have not been converted to ASIO Audio Sources.");
         }
 
-        [MenuItem("AsioAudioUnity/Add Source Position OSC to all ASIO Audio Sources", false, 22)]
-        static void AddAllSourcePositionOsc()
-        {
-            int undoGroup = Undo.GetCurrentGroup();
-            Undo.SetCurrentGroupName("Add Source Position OSC to all ASIO Audio Sources");
-
-            AsioAudioSource[] allAsioAudioSources = FindAllAsioAudioSources();
-            foreach (AsioAudioSource asioAudioSource in allAsioAudioSources)
-            {
-                AddSourcePositionOsc(asioAudioSource);
-            }
-
-            Undo.CollapseUndoOperations(undoGroup);
-
-            int sourcesWithoutOsc = allAsioAudioSources.Count(asioAudioSource => asioAudioSource.GetComponent<SourcePositionOsc>() == null);
-            if (sourcesWithoutOsc == 0) Debug.Log("All ASIO Audio Sources in scene have a Source Position OSC attached.");
-            else Debug.LogWarning(sourcesWithoutOsc + " ASIO Audio Source(s) in scene don't have a Source Position OSC attached.");
-        }
-
         [MenuItem("GameObject/AsioAudioUnity/ASIO Audio Source", false, 5)]
         static void CreateAsioAudioSource(MenuCommand menuCommand)
         {
-            CreateAsioAudioSource(menuCommand, false);
-        }
-
-        [MenuItem("GameObject/AsioAudioUnity/ASIO Audio Source (with Source Position OSC)", false, 6)]
-        static void CreateAsioAudioSourceWithSourcePositionOsc(MenuCommand menuCommand)
-        {
-            CreateAsioAudioSource(menuCommand, true);
-        }
-
-        [MenuItem("GameObject/AsioAudioUnity/ASIO Audio Manager", false, 21)]
-        static void CreateAsioAudioManager(MenuCommand menuCommand)
-        {
-            if (Object.FindFirstObjectByType<AsioAudioManager>())
-            {
-                Debug.LogError("ASIO Audio Manager already exists in scene.");
-                return;
-            }
-
             int undoGroup = Undo.GetCurrentGroup();
-            GameObject go = CreateGameObjectInScene("ASIO Audio Manager", menuCommand);
-            Undo.AddComponent<AsioAudioManager>(go);
+            CreateAsioAudioSourceInScene(menuCommand);
             Undo.CollapseUndoOperations(undoGroup);
         }
 
-        [MenuItem("GameObject/AsioAudioUnity/OSC Manager", false, 22)]
-        static void CreateOscManager(MenuCommand menuCommand)
+        [MenuItem("AsioAudioUnity/Project Settings…", false, 41)]
+        static void OpenProjectSettings()
         {
-            if (Object.FindFirstObjectByType<OSC>())
-            {
-                Debug.LogError("OSC Manager already exists in scene.");
-                return;
-            }
-
-            int undoGroup = Undo.GetCurrentGroup();
-            GameObject go = CreateGameObjectInScene("OSC Manager", menuCommand);
-            Undo.AddComponent<OSC>(go);
-            Undo.CollapseUndoOperations(undoGroup);
+            AsioEditorUtility.OpenSettings();
         }
     }
 }
