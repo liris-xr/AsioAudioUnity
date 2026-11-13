@@ -10,7 +10,7 @@
   - [REAPER](https://www.reaper.fm/download.php), installed **with the ReaRoute ASIO driver** (see the next tutorial),
   - [Spat Revolution](https://www.flux.audio/project/spat-revolution/), installed from Flux Center (a license and a Flux account are needed).
 
-Any other ASIO driver works too (an audio interface's driver, for example): REAPER and Spat Revolution are only needed for spatialisation.
+Any other ASIO driver works too (an audio interface's driver, for example): REAPER and Spat Revolution are only needed for spatialisation. On a computer without an ASIO driver, the sources play through Unity's own audio output instead, all channels mixed together, so a project can be worked on anywhere (see [Fall Back To Unity Audio](/Documentation~/Reference/AsioAudioSettings.md#fall-back-to-unity-audio)).
 
 ## Install the package
 
@@ -18,7 +18,7 @@ Any other ASIO driver works too (an audio interface's driver, for example): REAP
 2. Click **+** (top left) > **Add package from git URL…**
 3. Paste `https://github.com/liris-xr/AsioAudioUnity.git` and click **Add**.
 
-The package appears under *Packages > Asio Audio Unity*. To install a given version, add its tag at the end of the URL, e.g. `https://github.com/liris-xr/AsioAudioUnity.git#v3.1.0`.
+The package appears under *Packages > Asio Audio Unity*. To install a given version, add its tag at the end of the URL, e.g. `https://github.com/liris-xr/AsioAudioUnity.git#v3.2.0`.
 
 ## Import the demo scene
 

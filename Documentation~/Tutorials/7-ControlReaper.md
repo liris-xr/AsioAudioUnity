@@ -18,6 +18,15 @@ The **REAPER Controller** sends OSC commands to REAPER: REAPER plays when Unity 
 
 Now, when the scene starts with sources playing, REAPER plays from the start of its project. *Play All*, *Pause All*, *Stop All* and *Restart All* (from the ASIO Audio Mixer's *Master* strip, the overlay, code or OSC) are mirrored in REAPER, and so is the editor's Pause button. When Play mode ends, REAPER stops.
 
+## Follow REAPER (two-way)
+
+To start and stop the show from REAPER too, Unity can follow REAPER's transport:
+
+1. In REAPER's OSC control surface, set the Mode to **Configure device IP + local port**, the **Device IP** to 127.0.0.1 (Unity on the same computer), and the **Device port** to **9000**.
+2. In the REAPER Controller, tick **Follow REAPER** (Listen Port: 9000).
+
+Playing, pausing or stopping REAPER now plays, pauses or stops Unity's sources. See [Two-way sync](/Documentation~/Reference/ReaperController.md#two-way-sync).
+
 ## Send commands on Unity events
 
 In the **Commands** list, add a command, then choose:
@@ -38,5 +47,7 @@ Click **Send** next to a command to test it. From a script or a UnityEvent, call
 3. Right-click it in the list > **Copy selected action command ID**, and paste it in the controller's **Play Region Script ID**.
 
 A *Play Region* command with region number 2 then plays region 2 in loop.
+
+Commands can also be placed on a Timeline, as markers of a **REAPER Command track**: see [Timeline tracks](/Documentation~/Reference/Timeline.md#reaper-command-markers).
 
 All the commands and settings are described in [ReaperController](/Documentation~/Reference/ReaperController.md).

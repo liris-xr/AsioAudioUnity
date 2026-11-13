@@ -17,9 +17,9 @@ It sends directly to Spat Revolution's address and port: no OSC Manager and no c
 <img src="/Documentation~/pictures/spat-controller.png" alt="The Spat Controller Inspector" width="600"/>
 
 - **Spat Revolution**: **Address** and **Port** (127.0.0.1:8100 by default).
-- **Tracking**: **Track All ASIO Sources**, **Other Objects** (each with a Target, a Type, *Source* or *Room*, and its number in Spat), **Origin** and **Position Scale**.
+- **Tracking**: **Track All ASIO Sources**, **Other Objects** (a table: **+** adds an object, each row has its Target, Type *Source* or *Room*, number in Spat, and **×** to remove it), **Origin** and **Position Scale**.
 - **Sent to Spat**: the table of what is tracked, with the position sent. For each ASIO Audio Source: **Send** (untick to stop sending it), **Spat #** (any number; the reset button goes back to the output channel) and its name and channel. Two sources with the same Spat number show a warning. Sources that also have an obsolete *Source Position OSC* component are reported, since their positions would be sent twice, with a button to remove those components.
-- **Sending**: **Max Send Rate**, **Keep Alive Interval**, **Movement Threshold**, **Reset Positions On Quit**, and **Send Positions Now** (also in Edit mode, to check the setup).
+- **Sending**: **Max Send Rate**, **Keep Alive Interval**, **Movement Threshold**, **Reset Positions On Quit**, **Send Orientation** (with **Invert Yaw** and **Rotation Threshold**, see [Orientation](#orientation)), and **Send Positions Now** (also in Edit mode, to check the setup).
 - **OSC Addresses**: the addresses of Spat Revolution, and **Log Messages**.
 
 ## Messages
@@ -28,8 +28,19 @@ It sends directly to Spat Revolution's address and port: no OSC Manager and no c
 |-|-|
 | `/source/[number]/xyz` | x, y, z (Spat's axes: Unity's x, z, y) |
 | `/room/[number]/xyz` | x, y, z |
+| `/source/[number]/yaw` | yaw, in degrees (with *Send Orientation*) |
+| `/source/[number]/pitch` | pitch, in degrees (with *Send Orientation*) |
 
 The addresses can be changed in the *OSC Addresses* card (`{0}` is the number).
+
+## Orientation
+
+With **Send Orientation**, the Spat Controller also sends the orientation of each source, for directivity in Spat Revolution: its **yaw** and **pitch**, in degrees, relative to the *Origin*.
+
+- Yaw 0 faces the Origin's forward (Unity's +Z), and is positive turning right seen from above. If sources turn the wrong way in Spat Revolution, tick **Invert Yaw**. Pitch is positive upwards.
+- The orientation is sent when the object rotates by more than *Rotation Threshold* (0.5° by default), with the keep-alive, and with *Send Positions Now*. Rooms only send their position.
+- The default addresses are `/source/{0}/yaw` and `/source/{0}/pitch`: check them against your version of Spat Revolution's OSC documentation, and change them in *OSC Addresses* if needed.
+- The source's volume isn't sent as Spat gain: Unity already applies it to the audio, so it would apply twice.
 
 ## Script example
 
@@ -64,6 +75,9 @@ public class AddRoom : MonoBehaviour
 | `KeepAliveInterval` | Positions are re-sent every this many seconds even if nothing moves (default: 1; 0: only on movement). |
 | `MovementThreshold` | Smallest movement that sends a new position (default: 0.001). |
 | `ResetPositionsOnQuit` | Sends (0, 0, 0) for every tracked object when the application quits or Play mode ends (default: off). |
+| `SendOrientation` | Also sends the yaw and pitch of the sources (default: off). |
+| `InvertYaw` | Inverts the sign of the yaw sent (default: off). |
+| `RotationThreshold` | Smallest rotation, in degrees, that sends a new orientation (default: 0.5). |
 | `Addresses` | The OSC addresses of Spat Revolution. |
 | `LogMessages` | Logs every message sent. |
 
@@ -74,6 +88,8 @@ public class AddRoom : MonoBehaviour
 | `SendAllPositions()` | Sends the position of everything tracked now. |
 | `GetSpatIndex(source)`, `SetSpatIndex(source, number)`, `GetMapping(source)` | The Spat number of an ASIO Audio Source (its mapping, or its output channel), and how to change it. |
 | `SendPosition(type, number, spatPosition)` | Sends a position, in Spat's coordinates. |
+| `SendSourceOrientation(number, yawPitch)` | Sends the yaw and pitch of a source, in degrees. |
+| `ToSpatOrientation(worldRotation)` | Converts a Unity rotation to Spat's yaw and pitch (relative to the Origin). |
 | `ToSpatPosition(worldPosition)` | Converts a Unity position to Spat's coordinates (origin, scale, axes). |
 | `GetTrackedPositions()` | What is tracked now. |
 | `RefreshSources()` | Finds the ASIO Audio Sources of the loaded scenes again. |

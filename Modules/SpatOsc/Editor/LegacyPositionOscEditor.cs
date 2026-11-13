@@ -16,7 +16,7 @@ namespace AsioAudioUnity
         public override void OnInspectorGUI()
         {
             EditorGUILayout.HelpBox("This component is obsolete: positions are sent to Spat Revolution by a single Spat Controller, which tracks every ASIO Audio Source "
-                + "automatically (without an OSC Manager). It still works in existing scenes.", MessageType.Warning);
+                + "automatically (without an OSC Manager). It still works in existing scenes, but will be removed in version 4.0.", MessageType.Warning);
             if (GUILayout.Button("Replace with Spat Controller"))
             {
                 Replace(targets);

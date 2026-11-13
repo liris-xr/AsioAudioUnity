@@ -172,12 +172,59 @@ namespace AsioAudioUnity
 
         public enum ChannelIssue { None, NotSet, OutOfRange, Duplicate }
 
+        /// <summary>
+        /// The number of output channels a source uses: 1, or its file's channel count with Play All Channels
+        /// (from the loaded file in Play mode, otherwise read from the file).
+        /// </summary>
+        public static int GetOutputChannelCount(AsioAudioSource source)
+        {
+            if (source == null || !source.PlayAllChannels) return 1;
+            if (source.Voice != null && source.Voice.IsLoaded) return source.OutputChannelCount;
+            AudioFileInfo info = GetAudioFileInfo(source.ResolvedAudioFilePath);
+            return Mathf.Max(1, info != null ? info.Channels : source.Channels);
+        }
+
+        private static readonly Dictionary<int, float[]> SilentMeters = new Dictionary<int, float[]>();
+
+        /// <summary>
+        /// The levels to show on a source's meters: one per channel it plays on. Live levels in Play mode; otherwise silent meters
+        /// (so the layout doesn't change when playback starts).
+        /// </summary>
+        public static IReadOnlyList<float> GetMeterLevels(AsioAudioSource source, bool live)
+        {
+            if (live && source.ChannelMeterLevels.Count > 0) return source.ChannelMeterLevels;
+            int count = GetOutputChannelCount(source);
+            if (!SilentMeters.TryGetValue(count, out float[] silent)) SilentMeters[count] = silent = new float[count];
+            return silent;
+        }
+
+        /// <summary>Whether the source plays on this output channel (1-based).</summary>
+        public static bool UsesChannel(AsioAudioSource source, int channel)
+        {
+            return source.TargetOutputChannel > 0 && channel >= source.TargetOutputChannel && channel < source.TargetOutputChannel + GetOutputChannelCount(source);
+        }
+
+        /// <summary>Whether two sources use a common output channel.</summary>
+        public static bool SharesChannel(AsioAudioSource a, AsioAudioSource b)
+        {
+            if (a.TargetOutputChannel <= 0 || b.TargetOutputChannel <= 0) return false;
+            return a.TargetOutputChannel < b.TargetOutputChannel + GetOutputChannelCount(b) && b.TargetOutputChannel < a.TargetOutputChannel + GetOutputChannelCount(a);
+        }
+
+        /// <summary>"5", or "5–6" for a source playing several channels.</summary>
+        public static string DescribeChannels(AsioAudioSource source)
+        {
+            if (source.TargetOutputChannel <= 0) return "–";
+            int count = GetOutputChannelCount(source);
+            return count <= 1 ? source.TargetOutputChannel.ToString() : source.TargetOutputChannel + "–" + (source.TargetOutputChannel + count - 1);
+        }
+
         public static ChannelIssue GetChannelIssue(AsioAudioSource source, IList<AsioAudioSource> allSources, int outputChannelCount)
         {
             int channel = source.TargetOutputChannel;
             if (channel <= 0) return ChannelIssue.NotSet;
-            if (outputChannelCount > 0 && channel > outputChannelCount) return ChannelIssue.OutOfRange;
-            if (allSources.Any(other => other != source && other.TargetOutputChannel == channel)) return ChannelIssue.Duplicate;
+            if (outputChannelCount > 0 && channel + GetOutputChannelCount(source) - 1 > outputChannelCount) return ChannelIssue.OutOfRange;
+            if (allSources.Any(other => other != source && SharesChannel(source, other))) return ChannelIssue.Duplicate;
             return ChannelIssue.None;
         }
 
@@ -188,10 +235,12 @@ namespace AsioAudioUnity
                 case ChannelIssue.NotSet:
                     return "No output channel is set: this source will be ignored.";
                 case ChannelIssue.OutOfRange:
-                    return "Channel " + source.TargetOutputChannel + " doesn't exist: the ASIO driver has " + outputChannelCount + " output channels.";
+                    return GetOutputChannelCount(source) > 1
+                        ? "Channels " + DescribeChannels(source) + " don't all exist: the ASIO driver has " + outputChannelCount + " output channels (the channels beyond aren't played)."
+                        : "Channel " + source.TargetOutputChannel + " doesn't exist: the ASIO driver has " + outputChannelCount + " output channels.";
                 case ChannelIssue.Duplicate:
-                    string others = string.Join(", ", allSources.Where(other => other != source && other.TargetOutputChannel == source.TargetOutputChannel).Select(other => "\"" + other.name + "\""));
-                    return "Channel " + source.TargetOutputChannel + " is also used by " + others + ". Each source needs its own channel: only one of them will play.";
+                    string others = string.Join(", ", allSources.Where(other => other != source && SharesChannel(source, other)).Select(other => "\"" + other.name + "\" (" + DescribeChannels(other) + ")"));
+                    return "Channel " + DescribeChannels(source) + " is also used by " + others + ". Each source needs its own channels: only one of them will play.";
                 default:
                     return null;
             }
@@ -202,7 +251,7 @@ namespace AsioAudioUnity
         /// </summary>
         public static void BuildChannelOptions(int currentChannel, int outputChannelCount, IList<AsioAudioSource> allSources, ICollection<AsioAudioSource> editedSources, out GUIContent[] labels, out int[] values)
         {
-            int highestUsedChannel = allSources.Count == 0 ? 0 : allSources.Max(source => source.TargetOutputChannel);
+            int highestUsedChannel = allSources.Count == 0 ? 0 : allSources.Max(source => source.TargetOutputChannel + GetOutputChannelCount(source) - 1);
             int channelCount = outputChannelCount > 0 ? outputChannelCount : Mathf.Max(16, highestUsedChannel + 1);
 
             List<GUIContent> labelList = new List<GUIContent> { new GUIContent("None") };
@@ -215,7 +264,7 @@ namespace AsioAudioUnity
                 if (!string.IsNullOrEmpty(channelName)) label += "  " + channelName.Replace("/", "∕");
                 if (channel > channelCount) label += "  (doesn't exist on driver)";
 
-                AsioAudioSource user = allSources.FirstOrDefault(source => source.TargetOutputChannel == channel && !editedSources.Contains(source));
+                AsioAudioSource user = allSources.FirstOrDefault(source => UsesChannel(source, channel) && !editedSources.Contains(source));
                 if (user != null) label += "  (used by " + user.name.Replace("/", "∕") + ")"; // A '/' would create a submenu
 
                 labelList.Add(new GUIContent(label));
@@ -226,18 +275,40 @@ namespace AsioAudioUnity
             values = valueList.ToArray();
         }
 
-        /// <summary>Gives each source the lowest output channel not used by any other source.</summary>
+        /// <summary>The output channels used by these sources (several per source with Play All Channels).</summary>
+        public static HashSet<int> GetUsedChannels(IEnumerable<AsioAudioSource> sources)
+        {
+            HashSet<int> used = new HashSet<int>();
+            foreach (AsioAudioSource source in sources)
+            {
+                if (source == null || source.TargetOutputChannel <= 0) continue;
+                for (int c = 0; c < GetOutputChannelCount(source); c++) used.Add(source.TargetOutputChannel + c);
+            }
+            return used;
+        }
+
+        /// <summary>The lowest output channel from which <paramref name="count"/> consecutive channels are free.</summary>
+        public static int FindFreeChannels(HashSet<int> usedChannels, int count)
+        {
+            for (int first = 1; ; first++)
+            {
+                bool free = true;
+                for (int c = 0; c < count && free; c++) free = !usedChannels.Contains(first + c);
+                if (free) return first;
+            }
+        }
+
+        /// <summary>Gives each source the lowest output channel(s) not used by any other source.</summary>
         public static void AutoAssignChannels(IList<AsioAudioSource> sourcesToAssign, IList<AsioAudioSource> allSources)
         {
-            HashSet<int> usedChannels = new HashSet<int>(allSources.Where(source => !sourcesToAssign.Contains(source)).Select(source => source.TargetOutputChannel));
-            int nextChannel = 1;
+            HashSet<int> usedChannels = GetUsedChannels(allSources.Where(source => !sourcesToAssign.Contains(source)));
 
             foreach (AsioAudioSource source in sourcesToAssign)
             {
-                while (usedChannels.Contains(nextChannel)) nextChannel++;
-                int channel = nextChannel;
+                int count = GetOutputChannelCount(source);
+                int channel = FindFreeChannels(usedChannels, count);
                 RecordChange(source, "Auto-assign Output Channels", () => source.TargetOutputChannel = channel);
-                usedChannels.Add(channel);
+                for (int c = 0; c < count; c++) usedChannels.Add(channel + c);
             }
         }
 

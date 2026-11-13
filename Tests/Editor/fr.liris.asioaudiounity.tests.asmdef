@@ -3,6 +3,7 @@
     "rootNamespace": "AsioAudioUnity.Tests",
     "references": [
         "AsioAudioUnity",
+        "AsioAudioUnity.Osc",
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner"
     ],

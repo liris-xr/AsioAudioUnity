@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.0] - 2026-11-13
+
+### Added
+
+- **Audio assets tracked by GUID**: an ASIO Audio Source's file inside the project is also tracked by its asset GUID. When the file is moved or renamed in the Project window, the sources of the open scenes follow it; when a scene is opened, a path that no longer exists is recovered from the GUID (before trying a file with the same name in the scene's folder); at build time, a file found from its GUID is copied where the scene expects it. The Inspector has an **Audio Clip** field to pick or drop an audio asset (only its file is played: the AudioClip isn't added to builds), and a **Use the moved file** button when the file was moved. The demo scene's sounds are found whatever the version folder of the imported sample.
+- **Multichannel sources**: `AsioAudioSource.PlayAllChannels` (*Play All Channels* in the Inspector) plays every channel of the file on consecutive output channels, from the output channel (e.g. a stereo file on 5 and 6), instead of mixing it down to mono. For beds, ambiences and ambisonic files sent to Spat Revolution as multichannel inputs. Channel conflicts, the channel grid, auto-assignment, the mixer and the overlay take the channels used into account (`OutputChannelCount`, `UsesOutputChannel`, `AsioAudioManager.SharesOutputChannel`). The loop crossfade, fades, volume, mute and solo apply to all channels. The Inspector's waveform shows each channel in its own lane (L / R, or channel numbers), and the level meters show each channel, in the Inspector, the ASIO Audio Mixer, the in-game overlay and the Edit-mode preview (`AsioAudioSource.ChannelMeterLevels`).
+- **Unity audio fallback**: *Fall Back To Unity Audio* (*Project Settings > ASIO Audio*, `AsioAudioSettings.FallBackToUnityAudio`, on by default): when no ASIO driver can be used (none set, not installed, or failing to start), the sources play through Unity's own audio output, all channels mixed together, with a warning, so a project can be worked on without the show's ASIO setup. Shown as *Unity audio (no ASIO driver)* in Project Settings, the ASIO Audio Mixer, the overlay and the manager's Inspector (`AsioAudioManager.IsUsingUnityAudio`, `OutputSampleRate`).
+- **Spat orientation**: *Send Orientation* on the Spat Controller (`SendOrientation`, with `InvertYaw` and `RotationThreshold`) also sends each source's yaw and pitch, relative to the Origin, for directivity in Spat Revolution (`/source/{0}/yaw` and `/source/{0}/pitch`, editable in *OSC Addresses*; `SendSourceOrientation`, `ToSpatOrientation`).
+- **Two-way REAPER sync**: *Follow REAPER* on the REAPER Controller (`FollowReaper`, `ListenPort`, default 9000): when REAPER is played, paused or stopped, Unity's sources follow. REAPER sends its feedback to Unity with its control surface in mode *Configure device IP + local port*. Changes Unity asked for aren't applied back, so there is no loop.
+- **Timeline tracks** (when Unity's Timeline package is installed, optional assemblies `AsioAudioUnity.Timeline` and `AsioAudioUnity.ReaperOsc.Timeline`): the **ASIO Audio track** plays its bound source during each clip, from the clip's *Clip In* time, pausing and stopping with the Timeline; clips starting on the same frame start on the same sample. The **REAPER Command track** sends REAPER commands at its markers (a command of the REAPER Controller's list by name, or the marker's own command).
+- `AsioAudioManager.PlayInSync(source)`: plays sources queued during a frame together, at the end of the frame, on the same sample.
+- `OscUdpReceiver`: receives OSC messages on a UDP port without an OSC Manager (used by *Follow REAPER*).
+- `package.json`: minimum Unity version (6000.0), and links to the documentation, the changelog and the license, shown in the Package Manager.
+- Automated tests of multichannel playback, per-channel levels, mono downmix, the multichannel loop crossfade, and the OSC sender and receiver.
+
+### Changed
+
+- The sound of an ASIO Audio Source is set only as an **AudioClip** of the project in the Inspector (drop zone and *Audio Clip* field; the *Browse…* button is removed, and *Show in Project* is added). The clip's original file is still what plays, untouched and streamed from disk, and builds still copy only that file. The path is kept internally (`AudioFilePath`, which code can still set to any file). Sources whose file isn't an AudioClip of the project keep playing, with a note in the Inspector.
+- The Spat Controller's *Other Objects* list is a compact table (target, type, number, remove), aligned with the Inspector's cards.
+- The Edit-mode preview of an ASIO Audio Source uses its fade curves, loop crossfade and *Play All Channels*.
+- The README no longer says "Work in progress".
+
+### Deprecated
+
+- The legacy position components (`SourcePositionOsc`, `RoomPositionOsc`, `ObjectPositionOsc`) and the OSC Manager's `Closing` event are planned for removal in version 4.0: replace them with the Spat Controller (*Replace with Spat Controller* in their Inspector). Their obsolete warning and the documentation say so.
+
 ## [3.1.0] - 2026-11-10
 
 ### Added

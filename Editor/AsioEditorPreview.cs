@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using NAudio.Wave;
 using UnityEditor;
@@ -26,6 +27,11 @@ namespace AsioAudioUnity
         public static string LastError { get; private set; }
 
         public static float MeterLevel { get; private set; }
+
+        private static float[] _channelMeterLevels = new float[0];
+        private static float[] _channelPeaks = new float[1];
+        /// <summary>The level of each channel of the previewed source (one value when mixed down to mono).</summary>
+        public static IReadOnlyList<float> ChannelMeterLevels => _channelMeterLevels;
 
         public static double CurrentTime => _voice?.CurrentTime ?? 0;
 
@@ -64,7 +70,7 @@ namespace AsioAudioUnity
                     throw new Exception("output channel " + source.TargetOutputChannel + " doesn't exist (the driver has " + channelCount + " outputs).");
                 }
 
-                _voice = new AsioSourceVoice();
+                _voice = new AsioSourceVoice { DownmixToMono = !source.PlayAllChannels, Loop = source.Loop, LoopCrossfadeSeconds = source.LoopCrossfadeDuration };
                 _voice.Load(path, settings.TargetSampleRate, false);
                 _settings = settings;
                 Source = source;
@@ -108,6 +114,7 @@ namespace AsioAudioUnity
             _settings = null;
             Source = null;
             MeterLevel = 0f;
+            _channelMeterLevels = new float[0];
         }
 
         private static bool Fail(string reason)
@@ -136,7 +143,13 @@ namespace AsioAudioUnity
             double now = EditorApplication.timeSinceStartup;
             float elapsed = (float)(now - _lastUpdateTime);
             _lastUpdateTime = now;
-            MeterLevel = Mathf.Max(_voice.ConsumePeak(), MeterLevel * Mathf.Pow(0.1f, elapsed));
+            float falloff = Mathf.Pow(0.1f, elapsed);
+            MeterLevel = Mathf.Max(_voice.ConsumePeak(), MeterLevel * falloff);
+            int channels = _voice.ChannelCount;
+            if (_channelMeterLevels.Length != channels) _channelMeterLevels = new float[channels];
+            if (_channelPeaks.Length < channels) _channelPeaks = new float[channels];
+            int measured = _voice.ConsumeChannelPeaks(_channelPeaks);
+            for (int c = 0; c < channels; c++) _channelMeterLevels[c] = Mathf.Max(c < measured ? _channelPeaks[c] : 0f, _channelMeterLevels[c] * falloff);
         }
 
         // Settings edited during the preview are applied live (mute and solo are ignored: a preview is always heard).
@@ -147,6 +160,9 @@ namespace AsioAudioUnity
             _voice.OutputChannel = Source.TargetOutputChannel;
             _voice.FadeInSeconds = Source.FadeInDuration;
             _voice.FadeOutSeconds = Source.FadeOutDuration;
+            _voice.FadeInCurve = Source.FadeInCurve;
+            _voice.FadeOutCurve = Source.FadeOutCurve;
+            _voice.LoopCrossfadeSeconds = Source.LoopCrossfadeDuration;
             if (_mixer != null) _mixer.MasterVolume = _settings.MasterVolume;
         }
     }

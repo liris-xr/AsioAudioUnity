@@ -1,5 +1,3 @@
-(Work in progress)
-
 # Asio Audio for Unity
 
 Play Unity's sounds through an **ASIO driver**, each sound on its own output channel, and send their **positions over OSC**. With [REAPER](https://www.reaper.fm/) (through its ReaRoute ASIO driver) and [Spat Revolution](https://www.flux.audio/project/spat-revolution/), this spatialises a Unity scene on any speaker layout.
@@ -20,11 +18,13 @@ See [How it works](/Documentation~/Tutorials/1-Installation.md#how-it-works) for
 
 ## Features
 
-- **ASIO Audio Source**: replaces Unity's Audio Source, and plays a WAV, AIFF, MP3 or FLAC file on one ASIO output channel, with fades, a smooth (crossfaded) loop, mute / solo, and a waveform in the Inspector.
+- **ASIO Audio Source**: replaces Unity's Audio Source, and plays a WAV, AIFF, MP3 or FLAC file on one ASIO output channel (or a multichannel file on consecutive channels), with fades, a smooth (crossfaded) loop, mute / solo, and a waveform in the Inspector.
 - **Sample-accurate sync**: Play All, Pause All, Stop All and Restart All start every source on the same sample.
 - **Mixing**: the ASIO Audio Mixer window, an in-game overlay (also in builds), dB faders and meters, and mix snapshots.
-- **Spat OSC plugin**: the Spat Controller sends the positions of every source and room to Spat Revolution.
-- **REAPER OSC plugin**: the REAPER Controller follows Unity's transport, plays regions, and runs actions and Lua scripts on Unity events.
+- **Timeline**: ASIO Audio tracks to lay out cues, and REAPER Command markers.
+- **Works without ASIO**: on a computer without the show's driver, the sources play through Unity's audio, so a project can be worked on anywhere.
+- **Spat OSC plugin**: the Spat Controller sends the positions (and optionally orientations) of every source and room to Spat Revolution.
+- **REAPER OSC plugin**: the REAPER Controller follows Unity's transport (and Unity can follow REAPER's), plays regions, and runs actions and Lua scripts on Unity events.
 - **OSC remote**: control playback, volumes and snapshots from another application (TouchOSC, REAPER, Max...).
 
 Windows only (ASIO). Tested with Unity 6.3 LTS.

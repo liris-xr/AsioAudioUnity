@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using UnityEngine;
+using UnityEngine.Playables;
 
 namespace AsioAudioUnity
 {
@@ -14,7 +15,7 @@ namespace AsioAudioUnity
     /// The messages are encoded by the shared OSC library (AsioAudioUnity.Osc), and sent directly to REAPER (no OSC Manager needed, so the scene's OSC Manager keeps sending to Spat Revolution).
     /// </summary>
     [AddComponentMenu("AsioAudioUnity/REAPER Controller")]
-    public class ReaperController : MonoBehaviour
+    public class ReaperController : MonoBehaviour, INotificationReceiver
     {
         [SerializeField] private string _reaperAddress = "127.0.0.1";
         /// <summary>IP address of the computer running REAPER (127.0.0.1: this computer).</summary>
@@ -42,6 +43,26 @@ namespace AsioAudioUnity
         {
             get { return _followTransport; }
             set { _followTransport = value; }
+        }
+
+        [SerializeField] private bool _followReaper = false;
+        /// <summary>
+        /// Two-way sync: when REAPER is played, paused or stopped (by its operator, a control surface…), Unity's sources follow
+        /// (<c>PlayAll</c>, <c>PauseAll</c>, <c>StopAll</c>). REAPER must send its feedback to <see cref="ListenPort"/>
+        /// (control surface mode "Configure device IP + local port", device port = this port).
+        /// </summary>
+        public bool FollowReaper
+        {
+            get { return _followReaper; }
+            set { _followReaper = value; }
+        }
+
+        [SerializeField] private int _listenPort = 9000;
+        /// <summary>The port REAPER sends its feedback to: the "Device port" of its OSC control surface (default: 9000).</summary>
+        public int ListenPort
+        {
+            get { return _listenPort; }
+            set { _listenPort = value; }
         }
 
         [SerializeField] private bool _stopReaperOnQuit = true;
@@ -128,6 +149,89 @@ namespace AsioAudioUnity
         private void OnDestroy()
         {
             _sender.Dispose();
+            _receiver.Dispose();
+        }
+
+        // ---------- Following REAPER ----------
+
+        private enum ReaperTransport { Unknown, Stopped, Playing, Paused }
+
+        private readonly OscUdpReceiver _receiver = new OscUdpReceiver();
+        private ReaperTransport _reaperTransport = ReaperTransport.Unknown; // As last reported by REAPER, or as last asked by Unity
+        private bool _applyingReaperTransport; // Unity is following REAPER: don't send the command back to it
+
+        /// <summary>Whether REAPER's feedback is being received (Follow REAPER, in Play mode).</summary>
+        public bool IsListening => _receiver.IsOpen;
+
+        /// <summary>Why the listen port couldn't be opened, or null.</summary>
+        public string ListenError => _receiver.LastError;
+
+        private void Update()
+        {
+            if (!_followReaper || _quitting)
+            {
+                if (_receiver.IsOpen) _receiver.Close();
+                return;
+            }
+            if (!_receiver.IsOpen || _receiver.Port != _listenPort)
+            {
+                _reaperTransport = ReaperTransport.Unknown;
+                if (!_receiver.Open(_listenPort) && _receiver.LastError != _loggedListenError)
+                {
+                    _loggedListenError = _receiver.LastError;
+                    Debug.LogWarning("REAPER Controller: can't listen to REAPER's feedback on port " + _listenPort + ": " + _receiver.LastError, this);
+                }
+            }
+            _receiver.Poll(OnReaperMessage);
+        }
+
+        private string _loggedListenError;
+
+        // REAPER reports its transport with /play, /pause and /stop (1: in that state). The first report only tells the current state;
+        // afterwards, each change is applied to Unity's sources, unless Unity asked for it (then REAPER is only confirming it).
+        private void OnReaperMessage(OscMessage message)
+        {
+            if (_logMessages) Debug.Log("REAPER Controller: received " + message, this);
+            if (message.values.Count == 0 || !IsOn(message.values[0])) return;
+
+            ReaperTransport reported = message.address == _addresses.Play ? ReaperTransport.Playing
+                : message.address == _addresses.Pause ? ReaperTransport.Paused
+                : message.address == _addresses.Stop ? ReaperTransport.Stopped
+                : ReaperTransport.Unknown;
+            if (reported == ReaperTransport.Unknown || reported == _reaperTransport) return;
+
+            bool firstReport = _reaperTransport == ReaperTransport.Unknown;
+            _reaperTransport = reported;
+            if (firstReport) return;
+
+            AsioAudioManager manager = AsioAudioManager.Existing;
+            if (manager == null) return;
+
+            _applyingReaperTransport = true;
+            try
+            {
+                switch (reported)
+                {
+                    case ReaperTransport.Playing: manager.PlayAll(); break;
+                    case ReaperTransport.Paused: manager.PauseAll(); break;
+                    case ReaperTransport.Stopped: manager.StopAll(); break;
+                }
+            }
+            finally
+            {
+                _applyingReaperTransport = false;
+            }
+        }
+
+        private static bool IsOn(object value)
+        {
+            switch (value)
+            {
+                case int number: return number != 0;
+                case float number: return number > 0.5f;
+                case string text: return text == "1";
+                default: return false;
+            }
         }
 
         private void SubscribeToUnityEvents()
@@ -178,7 +282,7 @@ namespace AsioAudioUnity
         private void OnTransportCommand(AsioTransportCommand command)
         {
             if (_quitting) return;
-            if (_followTransport)
+            if (_followTransport && !_applyingReaperTransport)
             {
                 switch (command)
                 {
@@ -231,6 +335,20 @@ namespace AsioAudioUnity
         }
 
         /// <summary>Sends a command.</summary>
+        /// <summary>Receives Timeline markers (REAPER Command markers, on a REAPER Command track bound to this controller), and sends their command.</summary>
+        public void OnNotify(Playable origin, INotification notification, object context)
+        {
+            if (!(notification is IReaperCommandNotification reaperNotification) || _quitting) return;
+            if (!string.IsNullOrEmpty(reaperNotification.CommandName))
+            {
+                if (!Trigger(reaperNotification.CommandName)) Debug.LogWarning("REAPER Controller: no command named \"" + reaperNotification.CommandName + "\" (from a Timeline marker).", this);
+            }
+            else if (reaperNotification.Command != null)
+            {
+                Execute(reaperNotification.Command);
+            }
+        }
+
         public void Execute(ReaperCommand command)
         {
             switch (command.Type)
@@ -252,9 +370,9 @@ namespace AsioAudioUnity
 
         // ---------- REAPER actions ----------
 
-        public void Play() { Send(_addresses.Play, 1f); }
-        public void Pause() { Send(_addresses.Pause, 1f); }
-        public void Stop() { Send(_addresses.Stop, 1f); }
+        public void Play() { _reaperTransport = ReaperTransport.Playing; Send(_addresses.Play, 1f); }
+        public void Pause() { if (_reaperTransport == ReaperTransport.Playing) _reaperTransport = ReaperTransport.Paused; Send(_addresses.Pause, 1f); }
+        public void Stop() { _reaperTransport = ReaperTransport.Stopped; Send(_addresses.Stop, 1f); }
         public void Record() { Send(_addresses.Record, 1f); }
 
         /// <summary>Moves the edit cursor to the start of the project (and the playback, if playing).</summary>

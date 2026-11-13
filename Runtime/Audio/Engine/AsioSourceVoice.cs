@@ -6,8 +6,8 @@ using NAudio.Wave.SampleProviders;
 namespace AsioAudioUnity
 {
     /// <summary>
-    /// The real-time playback state of one ASIO Audio Source: an audio file, read as mono samples at the output sample rate,
-    /// with its transport state (playing / paused / stopped), position, volume, mute, loop and output channel.
+    /// The real-time playback state of one ASIO Audio Source: an audio file, read at the output sample rate (mixed down to mono, or with all its
+    /// channels on consecutive output channels), with its transport state (playing / paused / stopped), position, volume, mute, loop and output channel.
     ///
     /// Play, pause, stop and mute fade in or out over a few milliseconds, and volume changes are ramped, to avoid clicks.
     ///
@@ -30,7 +30,10 @@ namespace AsioAudioUnity
         // Guarded by _sync
         private VoiceSource _source; // Mono samples at the file's sample rate
         private LoopCrossfadeReader _loopReader; // Reads _source, crossfading the end of the file with its start when looping
-        private ISampleProvider _monoOutput; // Mono samples at the output sample rate, read from _loopReader
+        private ISampleProvider _output; // Samples at the output sample rate (interleaved if several channels), read from _loopReader
+        private volatile int _sourceChannels = 1; // Channels of _output (read lock-free by the main thread)
+        private volatile float[] _channelPeaks = new float[1]; // Highest absolute sample of each channel since last read (for level meters)
+        private float[] _mixChannelPeaks = new float[1]; // [Audio thread] Peaks of the current buffer
         private float[] _scratchBuffer = new float[0];
         private float _appliedVolume; // Last volume applied by the audio thread, used to ramp volume changes smoothly
         private float _transportGain; // Fade-in / fade-out position of play, pause and stop (0: silent, 1: full volume), shaped by the fade curves
@@ -44,6 +47,7 @@ namespace AsioAudioUnity
         private volatile int _fadeInCurve = (int)AsioFadeCurve.Squared;
         private volatile int _fadeOutCurve = (int)AsioFadeCurve.Squared;
         private volatile float _loopCrossfadeSeconds;
+        private volatile bool _downmixToMono = true;
         private volatile int _outputSampleRate = 48000;
         private volatile float _volume = 1f;
         private volatile bool _muted;
@@ -73,6 +77,15 @@ namespace AsioAudioUnity
         public AsioFadeCurve FadeInCurve { get => (AsioFadeCurve)_fadeInCurve; set => _fadeInCurve = (int)value; }
         /// <summary>Shape of the fade-out (of Pause and Stop, and at the end of a non-looping file).</summary>
         public AsioFadeCurve FadeOutCurve { get => (AsioFadeCurve)_fadeOutCurve; set => _fadeOutCurve = (int)value; }
+
+        /// <summary>
+        /// Whether the file is mixed down to mono, on the output channel (default), or plays all its channels on consecutive output channels,
+        /// starting at the output channel. Applied when the file is (re)loaded.
+        /// </summary>
+        public bool DownmixToMono { get => _downmixToMono; set => _downmixToMono = value; }
+
+        /// <summary>The number of output channels the loaded file plays on: 1 when mixed down to mono, otherwise the file's channel count.</summary>
+        public int ChannelCount => _sourceChannels;
 
         /// <summary>
         /// When looping, the end of the file is crossfaded with its start over this many seconds (at most half the file), so the loop point
@@ -125,10 +138,10 @@ namespace AsioAudioUnity
         public void Load(string audioFilePath, int outputSampleRate, bool preloadIntoMemory, bool keepPosition = false)
         {
             // Open (and possibly decode) the file outside the lock: disk access must not stall the audio thread.
-            VoiceSource newSource = VoiceSource.Open(audioFilePath, preloadIntoMemory, out WaveFormat decodedFileWaveFormat);
+            VoiceSource newSource = VoiceSource.Open(audioFilePath, preloadIntoMemory, _downmixToMono, out WaveFormat decodedFileWaveFormat);
             LoopCrossfadeReader newLoopReader = new LoopCrossfadeReader(newSource, this);
             EnsureLoopHead(newLoopReader);
-            ISampleProvider newMonoOutput = BuildMonoOutput(newLoopReader, outputSampleRate);
+            ISampleProvider newOutput = BuildOutput(newLoopReader, outputSampleRate);
 
             VoiceSource oldSource;
             lock (_sync)
@@ -142,7 +155,9 @@ namespace AsioAudioUnity
 
                 _source = newSource;
                 _loopReader = newLoopReader;
-                _monoOutput = newMonoOutput;
+                _output = newOutput;
+                _sourceChannels = newOutput.WaveFormat.Channels;
+                if (_channelPeaks.Length != _sourceChannels) _channelPeaks = new float[_sourceChannels];
                 _decodedFileWaveFormat = decodedFileWaveFormat;
                 _outputSampleRate = outputSampleRate;
                 Interlocked.Exchange(ref _framesPlayed, (long)(position * outputSampleRate));
@@ -168,7 +183,7 @@ namespace AsioAudioUnity
 
                 double currentTime = CurrentTime;
                 _outputSampleRate = outputSampleRate;
-                if (_loopReader != null) _monoOutput = BuildMonoOutput(_loopReader, outputSampleRate);
+                if (_loopReader != null) _output = BuildOutput(_loopReader, outputSampleRate);
                 Interlocked.Exchange(ref _framesPlayed, (long)(currentTime * outputSampleRate));
             }
         }
@@ -182,7 +197,8 @@ namespace AsioAudioUnity
                 oldSource = _source;
                 _source = null;
                 _loopReader = null;
-                _monoOutput = null;
+                _output = null;
+                _sourceChannels = 1;
                 _decodedFileWaveFormat = null;
                 _state = StateStopped;
                 _transportGain = 0f;
@@ -303,7 +319,19 @@ namespace AsioAudioUnity
         }
 
         /// <summary>
-        /// [Audio thread] Adds this voice's next samples to its output channel in an interleaved buffer.
+        /// Copies the highest absolute sample of each channel played since the last call (0 to 1, after volume and mute) into the array, resets them,
+        /// and returns the number of channels (1 when mixed down to mono). The array must hold at least <see cref="ChannelCount"/> values.
+        /// </summary>
+        public int ConsumeChannelPeaks(float[] destination)
+        {
+            float[] peaks = _channelPeaks;
+            int count = Math.Min(peaks.Length, destination.Length);
+            for (int c = 0; c < count; c++) destination[c] = Interlocked.Exchange(ref peaks[c], 0f);
+            return count;
+        }
+
+        /// <summary>
+        /// [Audio thread] Adds this voice's next samples to its output channel(s) in an interleaved buffer.
         /// </summary>
         public void MixInto(float[] buffer, int offset, int frames, int channelCount)
         {
@@ -313,13 +341,13 @@ namespace AsioAudioUnity
             if (!shouldPlay && _transportGain <= 0f && Volatile.Read(ref _rewindPending) == 0) return;
 
             int channelIndex = _outputChannel - 1;
-            bool validChannel = channelIndex >= 0 && channelIndex < channelCount;
 
             // Never block the audio thread: if the main thread is loading or seeking, skip this buffer.
             if (!Monitor.TryEnter(_sync)) return;
             try
             {
-                if (_monoOutput == null) return;
+                if (_output == null) return;
+                int sourceChannels = _sourceChannels;
 
                 // Fade-in (play, resume) and fade-out (pause, stop) steps, per frame
                 float fadeInStep = 1f / Math.Max(1f, _outputSampleRate * Math.Max(MinFadeSeconds, _fadeInSeconds));
@@ -354,6 +382,8 @@ namespace AsioAudioUnity
                 float targetVolume = _muted ? 0f : _volume;
                 float volumeStep = (targetVolume - startVolume) / frames;
                 float peak = 0f;
+                if (_mixChannelPeaks.Length < sourceChannels) _mixChannelPeaks = new float[sourceChannels];
+                Array.Clear(_mixChannelPeaks, 0, sourceChannels);
 
                 for (int frame = 0; frame < framesRead; frame++)
                 {
@@ -367,11 +397,20 @@ namespace AsioAudioUnity
                             gain *= AsioFadeCurves.Evaluate(fadeOutCurve, (float)Math.Max(0.0, remaining / endFadeFrames));
                         }
                     }
-                    float sample = _scratchBuffer[frame] * (startVolume + volumeStep * (frame + 1)) * gain;
+                    float frameGain = (startVolume + volumeStep * (frame + 1)) * gain;
 
-                    if (validChannel) buffer[offset + frame * channelCount + channelIndex] += sample;
-                    if (sample > peak) peak = sample;
-                    else if (-sample > peak) peak = -sample;
+                    // Channel c of the file goes to output channel (output channel + c); channels beyond the driver's outputs are dropped.
+                    int bufferFrame = offset + frame * channelCount;
+                    int scratchFrame = frame * sourceChannels;
+                    for (int c = 0; c < sourceChannels; c++)
+                    {
+                        float sample = _scratchBuffer[scratchFrame + c] * frameGain;
+                        int outputIndex = channelIndex + c;
+                        if (outputIndex >= 0 && outputIndex < channelCount) buffer[bufferFrame + outputIndex] += sample;
+                        float level = sample >= 0f ? sample : -sample;
+                        if (level > peak) peak = level;
+                        if (level > _mixChannelPeaks[c]) _mixChannelPeaks[c] = level;
+                    }
                 }
                 _appliedVolume = targetVolume;
                 // A fade-out that reached the end of a non-looping file is over.
@@ -379,6 +418,11 @@ namespace AsioAudioUnity
 
                 // Losing a value to a race with ConsumePeak is harmless for a meter.
                 if (peak > Volatile.Read(ref _peak)) Volatile.Write(ref _peak, peak);
+                float[] channelPeaks = _channelPeaks;
+                for (int c = 0; c < sourceChannels && c < channelPeaks.Length; c++)
+                {
+                    if (_mixChannelPeaks[c] > Volatile.Read(ref channelPeaks[c])) Volatile.Write(ref channelPeaks[c], _mixChannelPeaks[c]);
+                }
 
                 if (shouldPlay && framesRead < framesToRender)
                 {
@@ -400,17 +444,18 @@ namespace AsioAudioUnity
             }
         }
 
-        // [Audio thread, under _sync] Fills the scratch buffer, wrapping around to the start of the file when looping.
+        // [Audio thread, under _sync] Fills the scratch buffer (interleaved), wrapping around to the start of the file when looping. Returns frames.
         private int ReadWithLoop(int frames)
         {
-            if (_scratchBuffer.Length < frames) _scratchBuffer = new float[frames];
+            int channels = _sourceChannels;
+            if (_scratchBuffer.Length < frames * channels) _scratchBuffer = new float[frames * channels];
 
             int totalRead = 0;
             bool justRewound = false;
 
             while (totalRead < frames)
             {
-                int read = _monoOutput.Read(_scratchBuffer, totalRead, frames - totalRead);
+                int read = _output.Read(_scratchBuffer, totalRead * channels, (frames - totalRead) * channels) / channels;
 
                 // A crossfaded loop jumped back in the file: so does the playback position.
                 long wrapped = _loopReader.ConsumeWrappedFrames();
@@ -453,7 +498,7 @@ namespace AsioAudioUnity
             }
         }
 
-        private static ISampleProvider BuildMonoOutput(LoopCrossfadeReader source, int outputSampleRate)
+        private static ISampleProvider BuildOutput(LoopCrossfadeReader source, int outputSampleRate)
         {
             return source.WaveFormat.SampleRate == outputSampleRate ? source : new WdlResamplingSampleProvider(source, outputSampleRate);
         }

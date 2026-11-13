@@ -1,8 +1,9 @@
 {
   "name": "fr.liris.asioaudiounity",
-  "version": "3.1.0",
+  "version": "3.2.0",
   "displayName": "Asio Audio Unity",
-  "description": "A simple package that redefines Unity Audio Sources to work with ASIO protocol, and adds transmission of Audio Source positions via OSC protocol.",
+  "description": "Plays Unity sounds through an ASIO driver, each sound on its own output channel, and sends their positions over OSC: with REAPER (ReaRoute) and Spat Revolution, this spatialises a Unity scene on any speaker layout. Includes the Spat OSC and REAPER OSC plugins. Windows only.",
+  "unity": "6000.0",
   "samples": [
   {
 	  "displayName": "Demo Scene",
@@ -10,14 +11,17 @@
 	  "path": "Samples~/Demo"
 	  }
   ],
-  "documentationUrl": "",
-  "changelogUrl": "",
-  "licensesUrl": "",
+  "documentationUrl": "https://github.com/liris-xr/AsioAudioUnity/blob/main/Documentation~/README.md",
+  "changelogUrl": "https://github.com/liris-xr/AsioAudioUnity/blob/main/CHANGELOG.md",
+  "licensesUrl": "https://github.com/liris-xr/AsioAudioUnity/blob/main/LICENSE.md",
   "keywords": [
     "Audio",
     "ASIO",
     "OSC",
-    "3D Audio"
+    "3D Audio",
+    "Spatial Audio",
+    "REAPER",
+    "Spat Revolution"
   ],
   "author": {
     "name": "Eliott Zimmermann",

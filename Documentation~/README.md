@@ -27,15 +27,16 @@ Every component, window and setting in detail.
 - [AsioAudioSource](/Documentation~/Reference/AsioAudioSource.md): the component that plays a file on an output channel: Inspector, waveform, fades, smooth loop, API
 - [AsioAudioManager](/Documentation~/Reference/AsioAudioManager.md): plays all the sources (created automatically): transport in sync, snapshots, API
 - [ASIO Audio Mixer and in-game overlay](/Documentation~/Reference/AsioAudioMixer.md): control all the sources side by side
+- [Timeline tracks](/Documentation~/Reference/Timeline.md): play sources and send REAPER commands from a Timeline
 
 **Spat OSC plugin** (`Modules/SpatOsc`)
 
-- [SpatController](/Documentation~/Reference/SpatController.md): sends the positions of the sources and rooms to Spat Revolution
-- [Legacy position components](/Documentation~/Reference/LegacyPositionComponents.md): *SourcePositionOsc* and *RoomPositionOsc*, obsolete
+- [SpatController](/Documentation~/Reference/SpatController.md): sends the positions (and orientations) of the sources and rooms to Spat Revolution
+- [Legacy position components](/Documentation~/Reference/LegacyPositionComponents.md): *SourcePositionOsc* and *RoomPositionOsc*, obsolete, to be removed in 4.0
 
 **REAPER OSC plugin** (`Modules/ReaperOsc`)
 
-- [ReaperController](/Documentation~/Reference/ReaperController.md): follows Unity's transport, and sends commands to REAPER
+- [ReaperController](/Documentation~/Reference/ReaperController.md): follows Unity's transport (and REAPER's, two-way), and sends commands to REAPER
 
 **OSC library** (`Runtime/Osc`)
 
@@ -43,4 +44,4 @@ Every component, window and setting in detail.
 
 ## Package layout
 
-The audio core (`Runtime`, `Editor`) doesn't depend on OSC. The two plugins are built in (nothing to import), each in its own assemblies: **Spat OSC** (`AsioAudioUnity.SpatOsc`) and **REAPER OSC** (`AsioAudioUnity.ReaperOsc`). They don't depend on each other, and both use the shared OSC library (`AsioAudioUnity.Osc`). Everything is in the `AsioAudioUnity` namespace.
+The audio core (`Runtime`, `Editor`) doesn't depend on OSC. The two plugins are built in (nothing to import), each in its own assemblies: **Spat OSC** (`AsioAudioUnity.SpatOsc`) and **REAPER OSC** (`AsioAudioUnity.ReaperOsc`). They don't depend on each other, and both use the shared OSC library (`AsioAudioUnity.Osc`). The Timeline tracks (`AsioAudioUnity.Timeline`, `AsioAudioUnity.ReaperOsc.Timeline`) are compiled only when Unity's Timeline package is installed. Everything is in the `AsioAudioUnity` namespace.

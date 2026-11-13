@@ -1,0 +1,29 @@
+{
+    "name": "AsioAudioUnity.ReaperOsc.Timeline",
+    "rootNamespace": "AsioAudioUnity",
+    "references": [
+        "AsioAudioUnity",
+        "AsioAudioUnity.Osc",
+        "AsioAudioUnity.ReaperOsc",
+        "Unity.Timeline"
+    ],
+    "includePlatforms": [
+        "Editor",
+        "WindowsStandalone32",
+        "WindowsStandalone64"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [
+        {
+            "name": "com.unity.timeline",
+            "expression": "1.0.0",
+            "define": "ASIO_TIMELINE"
+        }
+    ],
+    "noEngineReferences": false
+}

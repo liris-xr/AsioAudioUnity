@@ -35,7 +35,7 @@ namespace AsioAudioUnity
             GUILayout.Label("Tracking", _titleStyle);
             SerializedProperty trackAllSources = serializedObject.FindProperty("_trackAllSources");
             EditorGUILayout.PropertyField(trackAllSources, new GUIContent("Track All ASIO Sources", "Send the position of every ASIO Audio Source of the loaded scenes, as the Spat source numbered like its output channel."));
-            EditorGUILayout.PropertyField(serializedObject.FindProperty("_trackedObjects"), new GUIContent("Other Objects", "Rooms, or sources that aren't ASIO Audio Sources. An entry with the same type and number as an ASIO source replaces it."), true);
+            DrawOtherObjects(serializedObject.FindProperty("_trackedObjects"));
             EditorGUILayout.PropertyField(serializedObject.FindProperty("_origin"), new GUIContent("Origin", "Positions are sent relative to this object (e.g. the listener or the room's center). Empty: the world origin."));
             EditorGUILayout.PropertyField(serializedObject.FindProperty("_positionScale"), new GUIContent("Position Scale", "Multiplies the positions sent (e.g. to convert units)."));
             EditorGUILayout.EndVertical();
@@ -53,6 +53,16 @@ namespace AsioAudioUnity
             EditorGUILayout.PropertyField(serializedObject.FindProperty("_keepAliveInterval"), new GUIContent("Keep Alive Interval", "Positions are re-sent every this many seconds even if nothing moves (0: only on movement)."));
             EditorGUILayout.PropertyField(serializedObject.FindProperty("_movementThreshold"), new GUIContent("Movement Threshold", "Smallest movement (in Unity units) that sends a new position."));
             EditorGUILayout.PropertyField(serializedObject.FindProperty("_resetPositionsOnQuit"), new GUIContent("Reset Positions On Quit", "Send (0, 0, 0) for every tracked object when the application quits or Play mode ends."));
+            SerializedProperty sendOrientation = serializedObject.FindProperty("_sendOrientation");
+            EditorGUILayout.PropertyField(sendOrientation, new GUIContent("Send Orientation", "Also send the orientation of the sources (yaw and pitch, in degrees, relative to the Origin), "
+                + "for directivity in Spat Revolution. Yaw 0 faces the Origin's forward, positive turning right seen from above; pitch is positive upwards."));
+            if (sendOrientation.boolValue)
+            {
+                EditorGUI.indentLevel++;
+                EditorGUILayout.PropertyField(serializedObject.FindProperty("_invertYaw"), new GUIContent("Invert Yaw", "Positive yaw turning left instead of right, if Spat Revolution's convention is the opposite."));
+                EditorGUILayout.PropertyField(serializedObject.FindProperty("_rotationThreshold"), new GUIContent("Rotation Threshold", "Smallest rotation, in degrees, that sends a new orientation."));
+                EditorGUI.indentLevel--;
+            }
             if (GUILayout.Button(new GUIContent("Send Positions Now", "Send the position of everything tracked to Spat Revolution now (also works in Edit mode)."), GUILayout.Height(24f)))
             {
                 serializedObject.ApplyModifiedProperties();
@@ -67,11 +77,49 @@ namespace AsioAudioUnity
                 SerializedProperty addresses = serializedObject.FindProperty("_addresses");
                 EditorGUILayout.PropertyField(addresses.FindPropertyRelative("SourcePosition"));
                 EditorGUILayout.PropertyField(addresses.FindPropertyRelative("RoomPosition"));
+                EditorGUILayout.PropertyField(addresses.FindPropertyRelative("SourceYaw"));
+                EditorGUILayout.PropertyField(addresses.FindPropertyRelative("SourcePitch"));
             }
             EditorGUILayout.PropertyField(serializedObject.FindProperty("_logMessages"));
             EditorGUILayout.EndVertical();
 
             serializedObject.ApplyModifiedProperties();
+        }
+
+        // Other objects as a compact table (Unity's default list puts its foldout arrow outside the card): target, type, number, remove.
+        private void DrawOtherObjects(SerializedProperty list)
+        {
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.LabelField(new GUIContent("Other Objects", "Rooms, or sources that aren't ASIO Audio Sources, with their number in Spat Revolution. "
+                + "An entry with the same type and number as an ASIO source replaces it."));
+            if (GUILayout.Button(new GUIContent("+", "Add an object (e.g. a room)"), EditorStyles.miniButton, GUILayout.Width(24f)))
+            {
+                list.arraySize++;
+                SerializedProperty added = list.GetArrayElementAtIndex(list.arraySize - 1);
+                added.FindPropertyRelative("Target").objectReferenceValue = null;
+                added.FindPropertyRelative("Index").intValue = Mathf.Max(1, added.FindPropertyRelative("Index").intValue);
+            }
+            EditorGUILayout.EndHorizontal();
+
+            if (list.arraySize == 0)
+            {
+                EditorGUILayout.LabelField("None. Click + to add a room or another object.", EditorStyles.miniLabel);
+                return;
+            }
+
+            int removeIndex = -1;
+            for (int i = 0; i < list.arraySize; i++)
+            {
+                SerializedProperty entry = list.GetArrayElementAtIndex(i);
+                EditorGUILayout.BeginHorizontal();
+                EditorGUILayout.PropertyField(entry.FindPropertyRelative("Target"), GUIContent.none, GUILayout.MinWidth(80f));
+                EditorGUILayout.PropertyField(entry.FindPropertyRelative("Type"), GUIContent.none, GUILayout.Width(70f));
+                SerializedProperty index = entry.FindPropertyRelative("Index");
+                index.intValue = Mathf.Max(1, EditorGUILayout.IntField(GUIContent.none, index.intValue, GUILayout.Width(40f)));
+                if (GUILayout.Button(new GUIContent("×", "Remove"), EditorStyles.miniButton, GUILayout.Width(22f))) removeIndex = i;
+                EditorGUILayout.EndHorizontal();
+            }
+            if (removeIndex >= 0) list.DeleteArrayElementAtIndex(removeIndex);
         }
 
         // What is tracked, with the position sent to Spat Revolution.

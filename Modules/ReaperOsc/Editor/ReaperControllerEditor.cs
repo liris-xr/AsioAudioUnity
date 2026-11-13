@@ -15,6 +15,8 @@ namespace AsioAudioUnity
         private SerializedProperty _reaperPort;
         private SerializedProperty _followTransport;
         private SerializedProperty _stopReaperOnQuit;
+        private SerializedProperty _followReaper;
+        private SerializedProperty _listenPort;
         private SerializedProperty _playRegionScriptId;
         private SerializedProperty _commands;
         private SerializedProperty _addresses;
@@ -32,6 +34,8 @@ namespace AsioAudioUnity
             _reaperPort = serializedObject.FindProperty("_reaperPort");
             _followTransport = serializedObject.FindProperty("_followTransport");
             _stopReaperOnQuit = serializedObject.FindProperty("_stopReaperOnQuit");
+            _followReaper = serializedObject.FindProperty("_followReaper");
+            _listenPort = serializedObject.FindProperty("_listenPort");
             _playRegionScriptId = serializedObject.FindProperty("_playRegionScriptId");
             _commands = serializedObject.FindProperty("_commands");
             _addresses = serializedObject.FindProperty("_addresses");
@@ -76,9 +80,24 @@ namespace AsioAudioUnity
         private void DrawUnityCard()
         {
             EditorGUILayout.BeginVertical(_cardStyle);
-            GUILayout.Label("Follow Unity", _titleStyle);
-            EditorGUILayout.PropertyField(_followTransport, new GUIContent("Follow Transport", "PlayAll plays REAPER, PauseAll pauses it, StopAll stops it, RestartAll plays it from the start of the project. When the scene starts with sources playing (Play On Enable), REAPER plays from the start of the project too."));
+            GUILayout.Label("Transport", _titleStyle);
+            EditorGUILayout.PropertyField(_followTransport, new GUIContent("Follow Transport", "REAPER follows Unity: PlayAll plays REAPER, PauseAll pauses it, StopAll stops it, RestartAll plays it from the start of the project. When the scene starts with sources playing (Play On Enable), REAPER plays from the start of the project too."));
             EditorGUILayout.PropertyField(_stopReaperOnQuit, new GUIContent("Stop REAPER On Quit", "Stops REAPER when the application quits, or when leaving Play mode."));
+            EditorGUILayout.PropertyField(_followReaper, new GUIContent("Follow REAPER", "Unity follows REAPER: when REAPER is played, paused or stopped (by its operator, a control surface...), Unity's sources follow (PlayAll, PauseAll, StopAll)."));
+            if (_followReaper.boolValue)
+            {
+                EditorGUI.indentLevel++;
+                EditorGUILayout.PropertyField(_listenPort, new GUIContent("Listen Port", "The port REAPER sends its feedback to: the \"Device port\" of its OSC control surface."));
+                EditorGUI.indentLevel--;
+                EditorGUILayout.HelpBox("In REAPER's OSC control surface: Mode \"Configure device IP + local port\", Device IP: the IP address of this computer (127.0.0.1 if REAPER runs here), "
+                    + "Device port: " + _listenPort.intValue + ".", MessageType.None);
+                ReaperController controller = (ReaperController)target;
+                if (EditorApplication.isPlaying)
+                {
+                    if (controller.IsListening) EditorGUILayout.LabelField("Listening to REAPER on port " + _listenPort.intValue + ".", EditorStyles.miniLabel);
+                    else if (!string.IsNullOrEmpty(controller.ListenError)) EditorGUILayout.HelpBox("Can't listen on port " + _listenPort.intValue + ": " + controller.ListenError, MessageType.Warning);
+                }
+            }
             EditorGUILayout.EndVertical();
         }
 

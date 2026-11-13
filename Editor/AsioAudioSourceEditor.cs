@@ -25,6 +25,7 @@ namespace AsioAudioUnity
         private SerializedProperty _fadeOutDuration;
         private SerializedProperty _fadeInCurve;
         private SerializedProperty _loopCrossfade;
+        private SerializedProperty _playAllChannels;
         private SerializedProperty _fadeOutCurve;
         private SerializedProperty _onPlay;
         private SerializedProperty _onPause;
@@ -51,6 +52,7 @@ namespace AsioAudioUnity
             _fadeOutDuration = serializedObject.FindProperty("_fadeOutDuration");
             _fadeInCurve = serializedObject.FindProperty("_fadeInCurve");
             _loopCrossfade = serializedObject.FindProperty("_loopCrossfade");
+            _playAllChannels = serializedObject.FindProperty("_playAllChannels");
             _fadeOutCurve = serializedObject.FindProperty("_fadeOutCurve");
             _onPlay = serializedObject.FindProperty("_onPlay");
             _onPause = serializedObject.FindProperty("_onPause");
@@ -142,7 +144,7 @@ namespace AsioAudioUnity
             Rect textArea = new Rect(dropArea.x + 52f, dropArea.y + 6f, dropArea.width - 60f, dropArea.height - 12f);
             string title = !samePath ? "—  (different files)" : hasFile ? Path.GetFileName(firstPath) : "No audio file";
             string hint = !samePath ? "Select a single source to see its file."
-                : !hasFile ? "Drop an audio file here, or use Browse…"
+                : !hasFile ? "Drop an AudioClip here, or pick one below"
                 : !fileExists ? "File not found: " + firstPath
                 : info != null ? AsioEditorUtility.DescribeAudioFile(info) : "Unreadable file";
             GUI.Label(new Rect(textArea.x, textArea.y, textArea.width, 18f), new GUIContent(title, samePath ? firstPath : null), _dropTitleStyle);
@@ -150,7 +152,11 @@ namespace AsioAudioUnity
 
             EditorGUILayout.Space(4f);
             EditorGUILayout.BeginHorizontal();
-            if (GUILayout.Button("Browse…", EditorStyles.miniButtonLeft)) BrowseForAudioFile();
+            AudioClip shownClip = samePath && hasFile && !Path.IsPathRooted(firstPath) ? AssetDatabase.LoadAssetAtPath<AudioClip>(firstPath.Replace('\\', '/')) : null;
+            using (new EditorGUI.DisabledScope(shownClip == null))
+            {
+                if (GUILayout.Button(new GUIContent("Show in Project", "Highlight the AudioClip in the Project window."), EditorStyles.miniButtonLeft)) EditorGUIUtility.PingObject(shownClip);
+            }
             using (new EditorGUI.DisabledScope(!fileExists))
             {
                 if (GUILayout.Button(new GUIContent("Show in Explorer", "Open the folder containing the file."), EditorStyles.miniButtonMid)) EditorUtility.RevealInFinder(sources[0].ResolvedAudioFilePath);
@@ -161,19 +167,48 @@ namespace AsioAudioUnity
             }
             EditorGUILayout.EndHorizontal();
 
+            // The sound is set as an AudioClip of the project. Only its file is played (bit-exact, streamed from disk), and builds copy the file:
+            // the clip's imported data isn't added to builds. The file's path is kept internally, and tracked by the asset's GUID.
+            AudioClip currentClip = shownClip;
+            EditorGUI.showMixedValue = !samePath;
+            EditorGUI.BeginChangeCheck();
+            AudioClip pickedClip = (AudioClip)EditorGUILayout.ObjectField(new GUIContent("Audio Clip", "The sound to play: an AudioClip of the project (WAV, AIFF or MP3). "
+                + "Its original file is played, untouched and streamed from disk, and copied to builds (the clip's imported data isn't added). "
+                + "Moving or renaming it keeps the source working."), currentClip, typeof(AudioClip), false);
+            if (EditorGUI.EndChangeCheck())
+            {
+                string pickedPath = pickedClip != null ? AssetDatabase.GetAssetPath(pickedClip) : "";
+                if (pickedClip == null || AsioEditorUtility.IsAudioFile(pickedPath)) SetAudioFilePath(pickedPath);
+                else Debug.LogWarning("ASIO Audio Source: \"" + pickedPath + "\" can't be played (WAV, AIFF, MP3 and FLAC files only; not OGG).");
+            }
+            EditorGUI.showMixedValue = false;
+
             // File problems
             AsioAudioSource[] missingFile = sources.Where(source => !string.IsNullOrEmpty(source.AudioFilePath) && !File.Exists(source.ResolvedAudioFilePath)).ToArray();
             if (missingFile.Length > 0)
             {
                 EditorGUILayout.HelpBox("Audio file not found: " + string.Join(", ", missingFile.Select(source => source.AudioFilePath)), MessageType.Error);
+                AsioAudioSource[] moved = missingFile.Where(source => AsioAudioFileRelinker.FindMovedFile(source) != null).ToArray();
+                if (moved.Length > 0 && GUILayout.Button(new GUIContent("Use the moved file", "The file was moved or renamed: use its new path (found from its asset GUID). "
+                    + "First one: " + AsioAudioFileRelinker.FindMovedFile(moved[0]))))
+                {
+                    foreach (AsioAudioSource source in moved)
+                    {
+                        string movedPath = AsioAudioFileRelinker.FindMovedFile(source);
+                        AsioEditorUtility.RecordChange(source, "Use Moved Audio File", () => source.AudioFilePath = movedPath);
+                    }
+                }
             }
             else if (sources.Any(source => string.IsNullOrEmpty(source.AudioFilePath)))
             {
                 EditorGUILayout.HelpBox("No audio file is set: this source will be ignored.", MessageType.Warning);
             }
-            if (sources.Any(source => AsioEditorUtility.IsOutsideProject(source.AudioFilePath)))
+            if (sources.Any(source => !string.IsNullOrEmpty(source.AudioFilePath) && File.Exists(source.ResolvedAudioFilePath)
+                && (Path.IsPathRooted(source.AudioFilePath) || AssetDatabase.LoadAssetAtPath<AudioClip>(source.AudioFilePath.Replace('\\', '/')) == null)))
             {
-                EditorGUILayout.HelpBox("The audio file is outside the project folder: it won't be copied to builds.", MessageType.Info);
+                EditorGUILayout.HelpBox("This file isn't an AudioClip of the project (it is outside the project, or Unity doesn't import its format): it still plays, "
+                    + "but it can't be picked here" + (sources.Any(source => AsioEditorUtility.IsOutsideProject(source.AudioFilePath)) ? ", and it isn't copied to builds" : "")
+                    + ". Move it into the Assets folder as a WAV, AIFF or MP3 file, and pick it as the Audio Clip.", MessageType.Info);
             }
 
             EndCard();
@@ -184,10 +219,15 @@ namespace AsioAudioUnity
         {
             Event currentEvent = Event.current;
             if (currentEvent.type != EventType.DragUpdated && currentEvent.type != EventType.DragPerform) return false;
-            if (!dropArea.Contains(currentEvent.mousePosition) || DragAndDrop.paths.Length == 0) return false;
+            if (!dropArea.Contains(currentEvent.mousePosition)) return false;
 
-            string filePath = DragAndDrop.paths[0];
-            if (!AsioEditorUtility.IsAudioFile(filePath))
+            // An AudioClip of the project (dragged from the Project window), whose file can be played
+            string filePath = null;
+            foreach (UnityEngine.Object dragged in DragAndDrop.objectReferences)
+            {
+                if (dragged is AudioClip clip) { filePath = AssetDatabase.GetAssetPath(clip); break; }
+            }
+            if (string.IsNullOrEmpty(filePath) || !AsioEditorUtility.IsAudioFile(filePath))
             {
                 DragAndDrop.visualMode = DragAndDropVisualMode.Rejected;
                 return false;
@@ -199,22 +239,11 @@ namespace AsioAudioUnity
             if (currentEvent.type == EventType.DragPerform)
             {
                 DragAndDrop.AcceptDrag();
-                SetAudioFilePath(AsioEditorUtility.ToProjectRelativePath(filePath));
+                SetAudioFilePath(filePath);
             }
 
             currentEvent.Use();
             return true;
-        }
-
-        private void BrowseForAudioFile()
-        {
-            string currentPath = Sources[0].ResolvedAudioFilePath;
-            string startDirectory = !string.IsNullOrEmpty(currentPath) && Directory.Exists(Path.GetDirectoryName(currentPath)) ? Path.GetDirectoryName(currentPath) : Application.dataPath;
-
-            string selectedPath = EditorUtility.OpenFilePanelWithFilters("Select an audio file", startDirectory, new[] { "Audio files", "wav,mp3,aiff,aif,flac", "All files", "*" });
-            if (!string.IsNullOrEmpty(selectedPath)) SetAudioFilePath(AsioEditorUtility.ToProjectRelativePath(selectedPath));
-
-            GUIUtility.ExitGUI(); // The file dialog breaks the current GUI layout
         }
 
         private void SetAudioFilePath(string audioFilePath)
@@ -278,6 +307,7 @@ namespace AsioAudioUnity
                     _waveformView.FadeInCurve = (AsioFadeCurve)_fadeInCurve.intValue;
                     _waveformView.FadeOutCurve = (AsioFadeCurve)_fadeOutCurve.intValue;
                     _waveformView.LoopCrossfadeSeconds = _loop.boolValue ? _loopCrossfade.floatValue : 0f;
+                    _waveformView.ShowChannels = _playAllChannels.boolValue; // One lane per channel, as the file plays
 
                     seekTo = _waveformView.Draw(waveform, currentSeconds, live, isAdvancing, live, live ? statusColor : AsioEditorUtility.StoppedColor);
                     if (_waveformView.FadesChanged)
@@ -449,14 +479,14 @@ namespace AsioAudioUnity
             BeginCard();
             CardTitle("Mix & Output");
 
-            // Volume in dB, with the level meter under the slider in Play mode
-            float meterLevel = sources.Length != 1 ? -1f
-                : isPlaying ? sources[0].MeterLevel
-                : AsioEditorPreview.IsPreviewing(sources[0]) ? AsioEditorPreview.MeterLevel
-                : -1f;
+            // Volume in dB, with the level meters under the slider in Play mode (one per channel the source plays on)
+            System.Collections.Generic.IReadOnlyList<float> meterLevels = sources.Length != 1 ? null
+                : isPlaying ? AsioEditorUtility.GetMeterLevels(sources[0], true)
+                : AsioEditorPreview.IsPreviewing(sources[0]) ? AsioEditorPreview.ChannelMeterLevels
+                : null;
             EditorGUI.BeginChangeCheck();
             float volume = AsioVolumeFader.SliderRow(new GUIContent("Volume", "In decibels: 0 dB is the file's original level, -6 dB half its amplitude, about -10 dB half as loud.\nDrag the slider (double-click: 0 dB) or type a value."),
-                _volume.floatValue, meterLevel, _volume.hasMultipleDifferentValues);
+                _volume.floatValue, meterLevels, _volume.hasMultipleDifferentValues);
             if (EditorGUI.EndChangeCheck()) _volume.floatValue = volume;
 
             // Mute / Solo
@@ -469,11 +499,18 @@ namespace AsioAudioUnity
             // Output channel
             EditorGUILayout.Space(6f);
             EditorGUILayout.BeginHorizontal();
-            GUILayout.Label(new GUIContent("Output Channel", "The ASIO output this source plays on. Each source needs its own channel."), EditorStyles.label);
+            GUILayout.Label(new GUIContent("Output Channel", "The ASIO output this source plays on (the first one, with Play All Channels). Each source needs its own channels."), EditorStyles.label);
             GUILayout.FlexibleSpace();
             string driverText = outputChannelCount > 0 ? outputChannelCount + " outputs on the driver" : "Driver outputs unknown until Play mode";
             GUILayout.Label(driverText, _rightMiniLabelStyle);
             EditorGUILayout.EndHorizontal();
+
+            // Mono (default) or every channel of the file on consecutive outputs
+            AsioEditorUtility.AudioFileInfo channelInfo = sources.Length == 1 ? AsioEditorUtility.GetAudioFileInfo(sources[0].ResolvedAudioFilePath) : null;
+            string fileChannels = channelInfo == null ? "" : channelInfo.Channels == 1 ? "  (mono file)" : "  (" + channelInfo.Channels + " channels in the file)";
+            EditorGUILayout.PropertyField(_playAllChannels, new GUIContent("Play All Channels" + fileChannels,
+                "Off (default): the file is mixed down to mono, on the output channel. On: each channel of the file plays on its own output, "
+                + "from the output channel on (e.g. a stereo file on 5 and 6), to send beds, ambiences or ambisonics to Spat Revolution as multichannel inputs."));
 
             if (sources.Length == 1)
             {
@@ -505,9 +542,10 @@ namespace AsioAudioUnity
         private void DrawChannelGrid(AsioAudioSource source, AsioAudioSource[] allSources, int outputChannelCount)
         {
             int current = _targetOutputChannel.intValue;
-            int highestUsed = allSources.Length == 0 ? 0 : allSources.Max(other => other.TargetOutputChannel);
+            int span = _playAllChannels.boolValue ? Mathf.Max(1, AsioEditorUtility.GetAudioFileInfo(source.ResolvedAudioFilePath)?.Channels ?? source.Channels) : 1;
+            int highestUsed = allSources.Length == 0 ? 0 : allSources.Max(other => other.TargetOutputChannel + AsioEditorUtility.GetOutputChannelCount(other) - 1);
             int channelCount = outputChannelCount > 0 ? outputChannelCount : Mathf.Max(16, highestUsed);
-            int shown = Mathf.Max(channelCount, current);
+            int shown = Mathf.Max(channelCount, current + span - 1);
 
             const float cellWidth = 32f, cellHeight = 20f, gap = 2f;
             float availableWidth = EditorGUIUtility.currentViewWidth - 48f;
@@ -523,8 +561,9 @@ namespace AsioAudioUnity
                 int channel = cell; // cell 0 is "None"
                 Rect cellRect = new Rect(area.x + cell % perRow * (cellWidth + gap), area.y + cell / perRow * (cellHeight + gap), cellWidth, cellHeight);
 
-                AsioAudioSource user = channel > 0 ? allSources.FirstOrDefault(other => other != source && other.TargetOutputChannel == channel) : null;
-                bool selected = channel == current && !_targetOutputChannel.hasMultipleDifferentValues;
+                AsioAudioSource user = channel > 0 ? allSources.FirstOrDefault(other => other != source && AsioEditorUtility.UsesChannel(other, channel)) : null;
+                bool first = channel == current && !_targetOutputChannel.hasMultipleDifferentValues;
+                bool selected = current > 0 ? channel >= current && channel < current + span && !_targetOutputChannel.hasMultipleDifferentValues : first;
                 bool outOfRange = outputChannelCount > 0 && channel > outputChannelCount;
 
                 string channelName = AsioEditorUtility.GetKnownOutputChannelName(channel);
@@ -537,7 +576,8 @@ namespace AsioAudioUnity
                     : previousBackground;
 
                 GUIContent content = new GUIContent(channel == 0 ? "–" : channel.ToString(), tooltip);
-                if (GUI.Toggle(cellRect, selected, content, EditorStyles.miniButton) && !selected)
+                // GUI.Toggle returns its state, not a click: only a change of state is a click (several cells are selected with Play All Channels).
+                if (GUI.Toggle(cellRect, selected, content, EditorStyles.miniButton) != selected && !first)
                 {
                     _targetOutputChannel.intValue = channel;
                 }
@@ -555,7 +595,10 @@ namespace AsioAudioUnity
             if (current > 0 && !_targetOutputChannel.hasMultipleDifferentValues)
             {
                 string currentName = AsioEditorUtility.GetKnownOutputChannelName(current);
-                EditorGUILayout.LabelField("Output " + current + (string.IsNullOrEmpty(currentName) ? "" : "  ·  " + currentName), EditorStyles.miniLabel);
+                string label = span > 1
+                    ? "Outputs " + current + "–" + (current + span - 1) + (string.IsNullOrEmpty(currentName) ? "" : "  ·  from " + currentName)
+                    : "Output " + current + (string.IsNullOrEmpty(currentName) ? "" : "  ·  " + currentName);
+                EditorGUILayout.LabelField(label, EditorStyles.miniLabel);
             }
         }
 

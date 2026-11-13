@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Globalization;
 using UnityEditor;
 using UnityEngine;
@@ -38,9 +39,17 @@ namespace AsioAudioUnity
         /// </summary>
         public static float SliderRow(GUIContent label, float linearVolume, float meterLevel, bool mixedValue = false)
         {
+            return SliderRow(label, linearVolume, Single(meterLevel), mixedValue);
+        }
+
+        /// <summary>The same row, with one meter per channel (stacked under the slider; null or empty: no meter).</summary>
+        public static float SliderRow(GUIContent label, float linearVolume, IReadOnlyList<float> meterLevels, bool mixedValue = false)
+        {
             EnsureStyles();
 
-            Rect row = EditorGUILayout.GetControlRect(true, 20f);
+            // Room under the slider for the stacked meters (one meter fits in the standard row)
+            float meterBand = MeterBandSize(meterLevels != null ? meterLevels.Count : 0, false, out _);
+            Rect row = EditorGUILayout.GetControlRect(true, 20f + Mathf.Max(0f, meterBand - MeterThickness));
             Rect content = EditorGUI.PrefixLabel(row, label);
             Rect unitRect = new Rect(content.xMax - UnitWidth, content.y + 1f, UnitWidth, 18f);
             Rect fieldRect = new Rect(unitRect.x - FieldWidth, content.y + 1f, FieldWidth, 18f);
@@ -53,7 +62,7 @@ namespace AsioAudioUnity
             int indent = EditorGUI.indentLevel;
             EditorGUI.indentLevel = 0;
 
-            float volume = Draw(sliderRect, linearVolume, meterLevel, false, mixedValue);
+            float volume = Draw(sliderRect, linearVolume, meterLevels, false, mixedValue);
             if (Event.current.type == EventType.Repaint) DrawHorizontalScale(scaleRect, TrackRect(sliderRect, false));
 
             // Editable value in dB ("-6", "-6.0 dB", "-inf"...)
@@ -91,6 +100,23 @@ namespace AsioAudioUnity
         /// </summary>
         public static float Draw(Rect rect, float linearVolume, float meterLevel, bool vertical, bool mixedValue = false)
         {
+            return Draw(rect, linearVolume, Single(meterLevel), vertical, mixedValue);
+        }
+
+        private static readonly float[] SingleLevel = new float[1];
+        private static IReadOnlyList<float> Single(float meterLevel)
+        {
+            if (meterLevel < 0f) return null;
+            SingleLevel[0] = meterLevel;
+            return SingleLevel;
+        }
+
+        /// <summary>
+        /// The same slider, with one meter per channel next to the track (side by side for a vertical slider, stacked under a horizontal one).
+        /// meterLevels: linear peak levels (null or empty: no meter).
+        /// </summary>
+        public static float Draw(Rect rect, float linearVolume, IReadOnlyList<float> meterLevels, bool vertical, bool mixedValue = false)
+        {
             EnsureStyles();
             int controlId = GUIUtility.GetControlID(FaderHash, FocusType.Passive, rect);
             Rect track = TrackRect(rect, vertical);
@@ -115,13 +141,19 @@ namespace AsioAudioUnity
                     RoundedRect(fill, GUI.enabled ? FillColor : FillColor * new Color(1f, 1f, 1f, 0.4f), TrackThickness / 2f);
                 }
 
-                // Meter, next to the track, on the same scale
-                if (meterLevel >= 0f)
+                // Meters, next to the track, on the same scale: one per channel
+                int meterCount = meterLevels != null ? meterLevels.Count : 0;
+                if (meterCount > 0)
                 {
-                    Rect meter = vertical
-                        ? new Rect(track.xMax + 4f, track.y, MeterThickness, track.height)
-                        : new Rect(track.x, track.yMax + 4f, track.width, MeterThickness);
-                    DrawMeter(meter, meterLevel, vertical);
+                    MeterBandSize(meterCount, vertical, out float thickness);
+                    for (int i = 0; i < meterCount; i++)
+                    {
+                        float offset = i * (thickness + MeterGap);
+                        Rect meter = vertical
+                            ? new Rect(track.xMax + 4f + offset, track.y, thickness, track.height)
+                            : new Rect(track.x, track.yMax + 4f + offset, track.width, thickness);
+                        DrawMeter(meter, meterLevels[i], vertical, thickness);
+                    }
                 }
 
                 // Thumb
@@ -186,10 +218,27 @@ namespace AsioAudioUnity
 
         // ---------- Meter and scales ----------
 
-        // Green up to -12 dB, yellow up to -3 dB, red above.
-        private static void DrawMeter(Rect meter, float linearLevel, bool vertical)
+        private const float MeterGap = 1f;
+        private const float MaxVerticalMeterBand = 10f; // Room right of a vertical fader's track (within VerticalWidth)
+
+        // The size of the meters' band (width for a vertical fader, height for a horizontal one) and the thickness of each meter.
+        private static float MeterBandSize(int count, bool vertical, out float thickness)
         {
-            RoundedRect(meter, MeterBackgroundColor, MeterThickness / 2f);
+            if (count <= 0) { thickness = 0f; return 0f; }
+            thickness = count == 1 ? MeterThickness : 2f;
+            float size = count * thickness + (count - 1) * MeterGap;
+            if (vertical && size > MaxVerticalMeterBand)
+            {
+                thickness = Mathf.Max(1f, (MaxVerticalMeterBand - (count - 1) * MeterGap) / count);
+                size = count * thickness + (count - 1) * MeterGap;
+            }
+            return size;
+        }
+
+        // Green up to -12 dB, yellow up to -3 dB, red above.
+        private static void DrawMeter(Rect meter, float linearLevel, bool vertical, float thickness = MeterThickness)
+        {
+            RoundedRect(meter, MeterBackgroundColor, thickness / 2f);
 
             float fill = AsioVolume.DecibelsToFaderPosition(AsioVolume.ToDecibels(linearLevel));
             if (fill <= 0f) return;
@@ -204,7 +253,7 @@ namespace AsioAudioUnity
                 Rect segment = vertical
                     ? new Rect(meter.x, meter.yMax - meter.height * to, meter.width, meter.height * (to - from))
                     : new Rect(meter.x + meter.width * from, meter.y, meter.width * (to - from), meter.height);
-                RoundedRect(segment, color, MeterThickness / 2f);
+                RoundedRect(segment, color, thickness / 2f);
             }
 
             Segment(0f, yellowStart, AsioEditorUtility.PlayingColor);

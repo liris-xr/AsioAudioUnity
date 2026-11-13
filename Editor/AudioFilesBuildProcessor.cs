@@ -31,22 +31,24 @@ namespace AsioAudioUnity
             string[] scenePaths = _builtScenePaths ?? EditorBuildSettings.scenes.Where(scene => scene.enabled).Select(scene => scene.path).ToArray();
             _builtScenePaths = null;
 
-            HashSet<string> audioFilePaths = CollectAudioFilePaths(scenePaths);
+            // Path stored by the sources (where the player looks for the file) -> file to copy (the same, or found from its asset GUID if it moved)
+            Dictionary<string, string> audioFilePaths = CollectAudioFilePaths(scenePaths);
 
             string projectRootPath = Path.GetDirectoryName(Application.dataPath);
             string buildRootPath = Path.GetDirectoryName(report.summary.outputPath);
             bool cleanBuild = report.summary.options.HasFlag(BuildOptions.CleanBuildCache);
             int copiedFiles = 0;
 
-            foreach (string audioFilePath in audioFilePaths)
+            foreach (KeyValuePair<string, string> audioFile in audioFilePaths)
             {
+                string audioFilePath = audioFile.Key;
                 if (Path.IsPathRooted(audioFilePath))
                 {
                     Debug.LogWarning($"Audio file \"{audioFilePath}\" is referenced with an absolute path: it was not copied to the build, and the build will only find it on this machine. Move it inside the project to include it in builds.");
                     continue;
                 }
 
-                string editorAudioFilePath = Path.Combine(projectRootPath, audioFilePath);
+                string editorAudioFilePath = Path.Combine(projectRootPath, audioFile.Value);
                 if (!File.Exists(editorAudioFilePath))
                 {
                     Debug.LogError($"Audio file not found at path: {editorAudioFilePath}. It was not copied to the build.");
@@ -70,9 +72,9 @@ namespace AsioAudioUnity
         /// Collects the audio file paths of all ASIO Audio Sources (including inactive ones) in the given scenes.
         /// Scenes that are not already loaded are opened additively and closed afterwards, so the scenes open in the editor are left untouched.
         /// </summary>
-        private static HashSet<string> CollectAudioFilePaths(IEnumerable<string> scenePaths)
+        private static Dictionary<string, string> CollectAudioFilePaths(IEnumerable<string> scenePaths)
         {
-            HashSet<string> audioFilePaths = new HashSet<string>();
+            Dictionary<string, string> audioFilePaths = new Dictionary<string, string>();
 
             foreach (string scenePath in scenePaths)
             {
@@ -99,7 +101,10 @@ namespace AsioAudioUnity
                                 Debug.LogWarning($"ASIO Audio Source on GameObject \"{asioAudioSource.gameObject.name}\" (scene \"{scene.name}\") has no audio file set.");
                                 continue;
                             }
-                            audioFilePaths.Add(asioAudioSource.AudioFilePath);
+                            string movedTo = AsioAudioFileRelinker.FindMovedFile(asioAudioSource);
+                            if (movedTo != null) Debug.LogWarning($"ASIO Audio Source on GameObject \"{asioAudioSource.gameObject.name}\" (scene \"{scene.name}\"): its audio file was moved to \"{movedTo}\". "
+                                + "It is copied to the build at the path the scene stores; open and save the scene to update the path.");
+                            audioFilePaths[asioAudioSource.AudioFilePath] = movedTo ?? asioAudioSource.AudioFilePath;
                         }
                     }
                 }

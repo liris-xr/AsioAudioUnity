@@ -2,7 +2,7 @@
 
 [Documentation home](/Documentation~/README.md)
 
-> **Obsolete since version 3.0.** Replaced by the [Spat Controller](/Documentation~/Reference/SpatController.md), which tracks every ASIO Audio Source automatically, and rooms, from one component, without an OSC Manager.
+> **Obsolete since version 3.0, and planned for removal in version 4.0.** Replaced by the [Spat Controller](/Documentation~/Reference/SpatController.md), which tracks every ASIO Audio Source automatically, and rooms, from one component, without an OSC Manager.
 
 Before version 3.0, positions were sent to Spat Revolution by a component on each object, through the scene's [OSC Manager](/Documentation~/Reference/AsioOscRemote.md#osc-manager):
 
@@ -11,6 +11,15 @@ Before version 3.0, positions were sent to Spat Revolution by a component on eac
 - both inherit from **ObjectPositionOsc**, and convert Unity's axes (Y up) to Spat's (Z up).
 
 Existing components still work, but they are hidden from *Add Component* and their menu items are removed.
+
+## Removal in version 4.0
+
+Version 4.0 is planned to remove:
+
+- the `SourcePositionOsc`, `RoomPositionOsc` and `ObjectPositionOsc` components, and their Inspector (*Replace with Spat Controller*),
+- the OSC Manager's `Closing` event, only used by these components.
+
+Scenes that still contain these components would then show missing scripts. **Replace them before upgrading to 4.0**, with the button below. The OSC Manager itself stays, for the [ASIO OSC Remote](/Documentation~/Reference/AsioOscRemote.md).
 
 ## Replacing them
 

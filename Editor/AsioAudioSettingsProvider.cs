@@ -148,11 +148,14 @@ namespace AsioAudioUnity
             DrawSampleRatePopup(sampleRate);
             EditorGUILayout.IntPopup(bitsPerSample, BitsPerSampleLabels, BitsPerSampleValues, new GUIContent("Sample Format", "The sample format the mix is handed to NAudio in. NAudio converts it to the driver's own format."));
             DrawDriverSampleFormat(bitsPerSample);
+            EditorGUILayout.PropertyField(_serializedSettings.FindProperty("_fallBackToUnityAudio"), new GUIContent("Fall Back To Unity Audio",
+                "When no ASIO driver can be used (none set, not installed, or failing to start), play the sources through Unity's own audio output instead, "
+                + "all channels mixed together, with a warning. Useful to work on a computer without the show's ASIO setup."));
             if (EditorApplication.isPlaying) EditorGUILayout.LabelField("Changing these settings reconnects the driver.", EditorStyles.centeredGreyMiniLabel);
 
             EditorGUILayout.Space(6f);
             EditorGUILayout.LabelField("Master", EditorStyles.boldLabel);
-            float masterMeter = manager != null && manager.IsConnected ? manager.MasterMeterLevel : -1f;
+            float masterMeter = manager != null && (manager.IsConnected || manager.IsUsingUnityAudio) ? manager.MasterMeterLevel : -1f;
             EditorGUI.BeginChangeCheck();
             float volume = AsioVolumeFader.SliderRow(new GUIContent("Master Volume", "Volume applied to all sources, after their own volume (like the master fader of a mixing desk). The meter shows the level sent to the ASIO driver."),
                 masterVolume.floatValue, masterMeter);
@@ -199,6 +202,11 @@ namespace AsioAudioUnity
             {
                 statusColor = AsioEditorUtility.PlayingColor;
                 statusText = "Connected  ·  " + manager.AsioDriverOutputChannelCount + " outputs  ·  " + manager.TargetSampleRate + " Hz  ·  " + manager.AsioAudioSources.Count + " source(s)";
+            }
+            else if (manager.IsUsingUnityAudio)
+            {
+                statusColor = AsioEditorUtility.PausedColor;
+                statusText = "No ASIO driver: playing through Unity's audio, all channels mixed  ·  " + manager.AsioAudioSources.Count + " source(s)";
             }
             else
             {
@@ -392,7 +400,7 @@ namespace AsioAudioUnity
 
                 GUIStyle channelStyle = new GUIStyle(EditorStyles.boldLabel) { alignment = TextAnchor.MiddleRight };
                 if (issue != AsioEditorUtility.ChannelIssue.None) channelStyle.normal.textColor = AsioEditorUtility.ErrorColor;
-                GUI.Label(channelRect, new GUIContent(source.TargetOutputChannel > 0 ? source.TargetOutputChannel.ToString() : "–", AsioEditorUtility.DescribeChannelIssue(issue, source, allSources, outputChannelCount)), channelStyle);
+                GUI.Label(channelRect, new GUIContent(AsioEditorUtility.DescribeChannels(source), AsioEditorUtility.DescribeChannelIssue(issue, source, allSources, outputChannelCount)), channelStyle);
 
                 AsioEditorUtility.DrawDot(dotRect, EditorApplication.isPlaying ? AsioEditorUtility.GetStatusColor(source.AudioStatus) : AsioEditorUtility.StoppedColor);
 

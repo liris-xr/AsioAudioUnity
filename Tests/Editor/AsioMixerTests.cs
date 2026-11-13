@@ -300,6 +300,151 @@ namespace AsioAudioUnity.Tests
             Assert.That(finalTime, Is.InRange(0.0, 1.0), "The playback position must loop too.");
         }
 
+        // A 1 s stereo file: left = sine at 0.5, right = sine at 0.25 (300.25 Hz: it doesn't loop cleanly).
+        private static string CreateStereoFile()
+        {
+            string path = Path.Combine(Path.GetTempPath(), "AsioAudioUnityTests_stereo_" + Guid.NewGuid().ToString("N") + ".wav");
+            using (WaveFileWriter writer = new WaveFileWriter(path, WaveFormat.CreateIeeeFloatWaveFormat(SampleRate, 2)))
+            {
+                float[] samples = new float[SampleRate * 2];
+                for (int i = 0; i < SampleRate; i++)
+                {
+                    float sine = (float)Math.Sin(2 * Math.PI * 300.25 * i / SampleRate);
+                    samples[i * 2] = 0.5f * sine;
+                    samples[i * 2 + 1] = 0.25f * sine;
+                }
+                writer.WriteSamples(samples, 0, samples.Length);
+            }
+            return path;
+        }
+
+        [TestCase(true)]
+        [TestCase(false)]
+        public void Multichannel_PlaysEachChannelOfTheFileOnConsecutiveOutputs(bool preload)
+        {
+            string path = CreateStereoFile();
+            try
+            {
+                AsioMixer mixer = new AsioMixer(SampleRate, Channels);
+                AsioSourceVoice voice = new AsioSourceVoice { OutputChannel = 2, DownmixToMono = false };
+                voice.Load(path, SampleRate, preload);
+                mixer.AddVoice(voice);
+                voice.Play();
+                Assert.AreEqual(2, voice.ChannelCount);
+
+                IWaveProvider output = mixer.ToWaveProvider();
+                byte[] bytes = NewDirtyBuffer();
+                float[] highest = new float[Channels];
+                for (int i = 0; i < 20; i++)
+                {
+                    float[] peaks = ReadBufferPeaks(output, bytes);
+                    for (int c = 0; c < Channels; c++) highest[c] = Math.Max(highest[c], peaks[c]);
+                }
+
+                Assert.AreEqual(0f, highest[0], "Output 1 has nothing.");
+                Assert.That(highest[1], Is.EqualTo(0.5f).Within(0.01f), "The left channel plays on output 2.");
+                Assert.That(highest[2], Is.EqualTo(0.25f).Within(0.01f), "The right channel plays on output 3.");
+                Assert.AreEqual(0f, highest[3], "Output 4 has nothing.");
+                voice.Dispose();
+            }
+            finally { File.Delete(path); }
+        }
+
+        [Test]
+        public void ChannelPeaks_MeasureEachChannel()
+        {
+            string path = CreateStereoFile();
+            try
+            {
+                AsioMixer mixer = new AsioMixer(SampleRate, Channels);
+                AsioSourceVoice voice = new AsioSourceVoice { OutputChannel = 1, DownmixToMono = false };
+                voice.Load(path, SampleRate, true);
+                mixer.AddVoice(voice);
+                voice.Play();
+
+                IWaveProvider output = mixer.ToWaveProvider();
+                byte[] bytes = NewDirtyBuffer();
+                for (int i = 0; i < 20; i++) ReadBufferPeaks(output, bytes);
+
+                float[] peaks = new float[4];
+                Assert.AreEqual(2, voice.ConsumeChannelPeaks(peaks));
+                Assert.That(peaks[0], Is.EqualTo(0.5f).Within(0.01f), "Left channel level.");
+                Assert.That(peaks[1], Is.EqualTo(0.25f).Within(0.01f), "Right channel level.");
+
+                voice.ConsumeChannelPeaks(peaks);
+                Assert.AreEqual(0f, peaks[0], "Consuming resets the peaks.");
+                voice.Dispose();
+            }
+            finally { File.Delete(path); }
+        }
+
+        [Test]
+        public void DownmixToMono_IsTheDefault_AndMixesTheChannelsOnOneOutput()
+        {
+            string path = CreateStereoFile();
+            try
+            {
+                AsioMixer mixer = new AsioMixer(SampleRate, Channels);
+                AsioSourceVoice voice = new AsioSourceVoice { OutputChannel = 2 };
+                voice.Load(path, SampleRate, true);
+                mixer.AddVoice(voice);
+                voice.Play();
+                Assert.AreEqual(1, voice.ChannelCount);
+
+                IWaveProvider output = mixer.ToWaveProvider();
+                byte[] bytes = NewDirtyBuffer();
+                float[] highest = new float[Channels];
+                for (int i = 0; i < 20; i++)
+                {
+                    float[] peaks = ReadBufferPeaks(output, bytes);
+                    for (int c = 0; c < Channels; c++) highest[c] = Math.Max(highest[c], peaks[c]);
+                }
+
+                Assert.That(highest[1], Is.GreaterThan(0.3f), "Both channels are mixed on output 2.");
+                Assert.AreEqual(0f, highest[2], "Nothing on output 3.");
+                voice.Dispose();
+            }
+            finally { File.Delete(path); }
+        }
+
+        [Test]
+        public void Multichannel_LoopCrossfade_HidesTheLoopPointOnEveryChannel()
+        {
+            string path = CreateStereoFile();
+            try
+            {
+                AsioMixer mixer = new AsioMixer(SampleRate, Channels);
+                AsioSourceVoice voice = new AsioSourceVoice { OutputChannel = 1, DownmixToMono = false, Loop = true, LoopCrossfadeSeconds = 0.2f };
+                voice.Load(path, SampleRate, false);
+                mixer.AddVoice(voice);
+                voice.Play();
+
+                IWaveProvider output = mixer.ToWaveProvider();
+                byte[] bytes = new byte[FramesPerBuffer * Channels * 4];
+                float[] previous = new float[2], biggestStep = new float[2];
+                for (int b = 0; b < SampleRate * 3 / FramesPerBuffer; b++)
+                {
+                    output.Read(bytes, 0, bytes.Length);
+                    float[] buffer = new WaveBuffer(bytes).FloatBuffer;
+                    for (int frame = 0; frame < FramesPerBuffer; frame++)
+                    {
+                        for (int c = 0; c < 2; c++)
+                        {
+                            float sample = buffer[frame * Channels + c];
+                            biggestStep[c] = Math.Max(biggestStep[c], Math.Abs(sample - previous[c]));
+                            previous[c] = sample;
+                        }
+                    }
+                }
+
+                Assert.Less(biggestStep[0], 0.04f, "Left: no click at the loop point.");
+                Assert.Less(biggestStep[1], 0.02f, "Right: no click at the loop point.");
+                Assert.That(voice.CurrentTime, Is.InRange(0.0, 1.0));
+                voice.Dispose();
+            }
+            finally { File.Delete(path); }
+        }
+
         [Test]
         public void DeferredRestart_RewindsAllVoicesTogether()
         {

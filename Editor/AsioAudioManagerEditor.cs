@@ -32,9 +32,10 @@ namespace AsioAudioUnity
                 return;
             }
 
-            Color statusColor = Manager.IsConnected ? AsioEditorUtility.PlayingColor : AsioEditorUtility.ErrorColor;
+            Color statusColor = Manager.IsConnected ? AsioEditorUtility.PlayingColor : Manager.IsUsingUnityAudio ? AsioEditorUtility.PausedColor : AsioEditorUtility.ErrorColor;
             string statusText = Manager.IsConnected
                 ? "Connected to \"" + Manager.AsioDriverName + "\"  ·  " + Manager.AsioDriverOutputChannelCount + " outputs  ·  " + Manager.TargetSampleRate + " Hz"
+                : Manager.IsUsingUnityAudio ? "No ASIO driver: playing through Unity's audio (all channels mixed)  ·  " + Manager.OutputSampleRate + " Hz"
                 : "Not connected: see the Console for details.";
 
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);

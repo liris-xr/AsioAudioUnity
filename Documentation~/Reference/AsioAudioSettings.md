@@ -13,7 +13,7 @@ The first time, click **Create ASIO Audio Settings**. The settings are saved in 
 | **Section** | **Settings** |
 |-|-|
 | Status | In Play mode: the connection status, number of outputs and sources, **Reconnect** and **Driver Control Panel** (the driver's own settings: buffer size, clock…). In Edit mode: **Driver Control Panel** too (see below). |
-| ASIO Driver | **Driver**: one of the ASIO drivers installed on the machine (a driver set on another machine shows *(not installed)*). **Sample Rate**: must be supported by the driver (ReaRoute only accepts REAPER's); audio files are resampled to it. **Sample Format**: 32-bit float (recommended) or 16-bit integer. **Driver Outputs** and **Driver Format**: the driver's number of output channels and the sample format it actually works with (e.g. 24-bit integer), live when connected, otherwise remembered from the last time the driver was loaded. Changing the driver, rate or format in Play mode reconnects the driver; sources keep their state and position. |
+| ASIO Driver | **Driver**: one of the ASIO drivers installed on the machine (a driver set on another machine shows *(not installed)*). **Sample Rate**: must be supported by the driver (ReaRoute only accepts REAPER's); audio files are resampled to it. **Sample Format**: 32-bit float (recommended) or 16-bit integer. **Driver Outputs** and **Driver Format**: the driver's number of output channels and the sample format it actually works with (e.g. 24-bit integer), live when connected, otherwise remembered from the last time the driver was loaded. Changing the driver, rate or format in Play mode reconnects the driver; sources keep their state and position. **Fall Back To Unity Audio**: see below. |
 | Master | **Master Volume**, in dB, applied to all sources after their own volume, with the level sent to the driver in Play mode. |
 | Snapshots | Saved mixes: the master volume, and the volume, mute and solo of every source, **identified by output channel** (so a snapshot works in every scene). *Save Current Mix*, *Recall*, *Update*, rename and delete. |
 | Editor | **Pause With Editor** (default: on): see below. |
@@ -25,6 +25,14 @@ Changes made at runtime (from the overlay, the mixer, code or OSC) are made to t
 ## Driver Control Panel in Edit mode
 
 Outside Play mode, **Driver Control Panel** loads the driver to open its control panel. This also reads its number of outputs, channel names and sample format, shown as *Driver Outputs* and *Driver Format*. The driver is reloaded on each click (so changes made in its panel are read), and released with **Release Driver**, when leaving the page, entering Play mode or starting a preview. While it is loaded, other applications may not be able to use an exclusive driver.
+
+## Fall Back To Unity Audio
+
+When no ASIO driver can be used (none is set, it isn't installed on this computer, or it fails to start), the sources play through **Unity's own audio output** instead, with a warning in the Console (default: on). All the output channels are mixed together, on every speaker of Unity's output, at Unity's sample rate. Everything else works as with a driver: transport in sync, fades, loops, volumes, mute and solo, snapshots. This lets a project be built and tested on a computer without the show's ASIO setup; on the show computer, the same project uses the driver.
+
+- The status shows *Unity audio (no ASIO driver)* in Project Settings, the ASIO Audio Mixer, the overlay and the manager's Inspector.
+- Unity's audio must be enabled (*Project Settings > Audio > Disable Unity Audio* off), and the scene needs an **Audio Listener** (e.g. on the camera): the manager warns otherwise.
+- Off, a missing driver is an error and nothing plays.
 
 ## Pause With Editor
 
@@ -43,5 +51,6 @@ Scenes made with version 2.x contain an `AsioAudioManager` component with the se
 | `AsioDriverName`, `TargetSampleRate`, `TargetBitsPerSample` | The driver, sample rate and sample format. |
 | `MasterVolume` | The master volume (linear gain, 0 to 1). |
 | `Snapshots` | The saved snapshots (`AsioMixerSnapshot`). |
+| `FallBackToUnityAudio` | Play through Unity's audio output when no ASIO driver can be used (default: on). |
 | `PauseWithEditor` | Pause the sources when the editor is paused (default: on). |
 | `DisplayInfoOnGameWindow`, `OverlayToggleKey`, `OverlayScale` | The in-game overlay settings. |

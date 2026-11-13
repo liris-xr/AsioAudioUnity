@@ -10,7 +10,8 @@ using UnityEngine;
 namespace AsioAudioUnity
 {
     /// <summary>
-    /// Peak and RMS levels of an audio file, mixed down to mono like it is played, computed in a background thread and cached.
+    /// Peak and RMS levels of an audio file, mixed down to mono like it is played, and of each of its channels (for multichannel files),
+    /// computed in a background thread and cached.
     /// </summary>
     internal sealed class WaveformData
     {
@@ -27,6 +28,11 @@ namespace AsioAudioUnity
         public float[] Min;
         public float[] Max;
         public float[] MeanSquare;
+        // Per channel ([channel][bucket]), for files with several channels (null for mono files).
+        public float[][] ChannelMin;
+        public float[][] ChannelMax;
+        public float[][] ChannelMeanSquare;
+        public int Channels = 1;
         public int BucketCount;
         public int SampleRate;
         public long TotalFrames;
@@ -90,9 +96,42 @@ namespace AsioAudioUnity
                     float[] buffer = new float[FramesPerBucket * 64 * channels];
                     float channelWeight = 1f / channels;
 
+                    bool perChannel = channels > 1;
+                    float[][] channelMin = null, channelMax = null, channelMeanSquare = null;
+                    float[] channelBucketMin = null, channelBucketMax = null;
+                    double[] channelBucketSquares = null;
+                    if (perChannel)
+                    {
+                        channelMin = new float[channels][]; channelMax = new float[channels][]; channelMeanSquare = new float[channels][];
+                        for (int c = 0; c < channels; c++) { channelMin[c] = new float[capacity]; channelMax[c] = new float[capacity]; channelMeanSquare[c] = new float[capacity]; }
+                        channelBucketMin = new float[channels]; channelBucketMax = new float[channels]; channelBucketSquares = new double[channels];
+                        for (int c = 0; c < channels; c++) { channelBucketMin[c] = float.MaxValue; channelBucketMax[c] = float.MinValue; }
+                    }
+
                     int bucket = 0, framesInBucket = 0;
                     float bucketMin = float.MaxValue, bucketMax = float.MinValue;
                     double bucketSquares = 0;
+
+                    void StoreBucket()
+                    {
+                        if (bucket == min.Length)
+                        {
+                            Grow(ref min, ref max, ref meanSquare);
+                            if (perChannel) for (int c = 0; c < channels; c++) Grow(ref channelMin[c], ref channelMax[c], ref channelMeanSquare[c]);
+                        }
+                        min[bucket] = bucketMin; max[bucket] = bucketMax; meanSquare[bucket] = (float)(bucketSquares / framesInBucket);
+                        if (perChannel)
+                        {
+                            for (int c = 0; c < channels; c++)
+                            {
+                                channelMin[c][bucket] = channelBucketMin[c]; channelMax[c][bucket] = channelBucketMax[c];
+                                channelMeanSquare[c][bucket] = (float)(channelBucketSquares[c] / framesInBucket);
+                                channelBucketMin[c] = float.MaxValue; channelBucketMax[c] = float.MinValue; channelBucketSquares[c] = 0;
+                            }
+                        }
+                        bucket++;
+                        framesInBucket = 0; bucketMin = float.MaxValue; bucketMax = float.MinValue; bucketSquares = 0;
+                    }
                     long frames = 0;
                     int samplesRead;
 
@@ -105,34 +144,35 @@ namespace AsioAudioUnity
                         {
                             float sum = 0f;
                             int frameStart = frame * channels;
-                            for (int channel = 0; channel < channels; channel++) sum += buffer[frameStart + channel];
+                            for (int channel = 0; channel < channels; channel++)
+                            {
+                                float channelSample = buffer[frameStart + channel];
+                                sum += channelSample;
+                                if (perChannel)
+                                {
+                                    if (channelSample < channelBucketMin[channel]) channelBucketMin[channel] = channelSample;
+                                    if (channelSample > channelBucketMax[channel]) channelBucketMax[channel] = channelSample;
+                                    channelBucketSquares[channel] += channelSample * channelSample;
+                                }
+                            }
                             float sample = sum * channelWeight;
 
                             if (sample < bucketMin) bucketMin = sample;
                             if (sample > bucketMax) bucketMax = sample;
                             bucketSquares += sample * sample;
 
-                            if (++framesInBucket == FramesPerBucket)
-                            {
-                                if (bucket == min.Length) Grow(ref min, ref max, ref meanSquare);
-                                min[bucket] = bucketMin; max[bucket] = bucketMax; meanSquare[bucket] = (float)(bucketSquares / framesInBucket);
-                                bucket++;
-                                framesInBucket = 0; bucketMin = float.MaxValue; bucketMax = float.MinValue; bucketSquares = 0;
-                            }
+                            if (++framesInBucket == FramesPerBucket) StoreBucket();
                         }
 
                         frames += framesRead;
                         Progress = Mathf.Clamp01((float)frames / estimatedFrames);
                     }
 
-                    if (framesInBucket > 0)
-                    {
-                        if (bucket == min.Length) Grow(ref min, ref max, ref meanSquare);
-                        min[bucket] = bucketMin; max[bucket] = bucketMax; meanSquare[bucket] = (float)(bucketSquares / framesInBucket);
-                        bucket++;
-                    }
+                    if (framesInBucket > 0) StoreBucket();
 
                     Min = min; Max = max; MeanSquare = meanSquare;
+                    ChannelMin = channelMin; ChannelMax = channelMax; ChannelMeanSquare = channelMeanSquare;
+                    Channels = channels;
                     BucketCount = bucket;
                     SampleRate = reader.WaveFormat.SampleRate;
                     TotalFrames = frames;
@@ -200,6 +240,18 @@ namespace AsioAudioUnity
         private double _renderedStart, _renderedDuration;
         private float _renderedAmplitudeZoom;
         private bool _renderedDecibels;
+        private int _renderedLanes;
+
+        /// <summary>Draws each channel of a multichannel file in its own lane (as it plays with Play All Channels), instead of the mono mix.</summary>
+        public bool ShowChannels { get; set; }
+
+        // Number of lanes drawn for this file: its channels with ShowChannels, otherwise 1 (the mono mix).
+        private int LaneCount(WaveformData data) => ShowChannels && data != null && data.IsReady && data.Channels > 1 && data.ChannelMin != null ? data.Channels : 1;
+
+        // The graph's height: taller with several lanes, within limits.
+        private static float GraphHeightFor(int lanes) => lanes <= 1 ? GraphHeight : Mathf.Min(360f, Mathf.Max(GraphHeight, lanes * 60f));
+
+        private static string LaneName(int lane, int lanes) => lanes == 2 ? (lane == 0 ? "L" : "R") : (lane + 1).ToString();
 
         private GUIStyle _axisLabelStyle, _rightAxisLabelStyle, _overlayLabelStyle, _hoverLabelStyle;
 
@@ -260,8 +312,10 @@ namespace AsioAudioUnity
 
             DrawToolbar(ready);
 
-            Rect area = GUILayoutUtility.GetRect(0f, GraphHeight + TimeAxisHeight, GUILayout.ExpandWidth(true));
-            Rect graph = new Rect(area.x + AmplitudeAxisWidth, area.y, Mathf.Max(1f, area.width - AmplitudeAxisWidth), GraphHeight);
+            int lanes = LaneCount(data);
+            float graphHeight = GraphHeightFor(lanes);
+            Rect area = GUILayoutUtility.GetRect(0f, graphHeight + TimeAxisHeight, GUILayout.ExpandWidth(true));
+            Rect graph = new Rect(area.x + AmplitudeAxisWidth, area.y, Mathf.Max(1f, area.width - AmplitudeAxisWidth), graphHeight);
             Rect timeAxis = new Rect(graph.x, graph.yMax, graph.width, TimeAxisHeight);
             Rect scrollbarRect = GUILayoutUtility.GetRect(0f, 14f, GUILayout.ExpandWidth(true));
             scrollbarRect.xMin += AmplitudeAxisWidth;
@@ -314,10 +368,11 @@ namespace AsioAudioUnity
                 bool decibels = DecibelScale;
                 float amplitudeZoom = decibels ? 1f : AmplitudeZooms[_amplitudeZoomIndex];
 
-                DrawAmplitudeGrid(area, graph, decibels, amplitudeZoom);
+                if (lanes > 1) DrawLaneGrid(area, graph, lanes);
+                else DrawAmplitudeGrid(area, graph, decibels, amplitudeZoom);
                 DrawTimeAxis(graph, timeAxis, visible);
 
-                RenderTexture(data, pixelWidth, pixelHeight, _viewStart, visible, amplitudeZoom, decibels);
+                RenderTexture(data, pixelWidth, pixelHeight, _viewStart, visible, amplitudeZoom, decibels, lanes);
 
                 Color unplayedColor = EditorGUIUtility.isProSkin ? new Color(0.55f, 0.7f, 0.9f) : new Color(0.2f, 0.35f, 0.6f);
                 float playheadX = graph.x + (float)((currentSeconds - _viewStart) / visible) * graph.width;
@@ -343,7 +398,7 @@ namespace AsioAudioUnity
                     EditorGUI.DrawRect(new Rect(playheadX - 1f, graph.y, 2f, graph.height + 4f), EditorGUIUtility.isProSkin ? Color.white : Color.black);
                 }
 
-                if (_draggedFade == 0) DrawHover(graph, data, visible, decibels);
+                if (_draggedFade == 0) DrawHover(graph, data, visible, decibels, lanes);
             }
 
             // Tooltip with the controls
@@ -713,6 +768,21 @@ namespace AsioAudioUnity
 
         // ---------- Axes ----------
 
+        // With several lanes: a separator between lanes, each lane's center line, and its channel name (L / R, or its number) on the left.
+        private void DrawLaneGrid(Rect area, Rect graph, int lanes)
+        {
+            Color centerColor = EditorGUIUtility.isProSkin ? new Color(1f, 1f, 1f, 0.18f) : new Color(0f, 0f, 0f, 0.25f);
+            Color separatorColor = EditorGUIUtility.isProSkin ? new Color(0f, 0f, 0f, 0.6f) : new Color(1f, 1f, 1f, 0.7f);
+            float laneHeight = graph.height / lanes;
+            for (int lane = 0; lane < lanes; lane++)
+            {
+                float top = graph.y + lane * laneHeight;
+                if (lane > 0) EditorGUI.DrawRect(new Rect(graph.x, Mathf.Round(top), graph.width, 1f), separatorColor);
+                EditorGUI.DrawRect(new Rect(graph.x, Mathf.Round(top + laneHeight / 2f), graph.width, 1f), centerColor);
+                GUI.Label(new Rect(area.x, top + laneHeight / 2f - 7f, AmplitudeAxisWidth - 4f, 14f), LaneName(lane, lanes), _rightAxisLabelStyle);
+            }
+        }
+
         private void DrawAmplitudeGrid(Rect area, Rect graph, bool decibels, float amplitudeZoom)
         {
             Color gridColor = EditorGUIUtility.isProSkin ? new Color(1f, 1f, 1f, 0.07f) : new Color(0f, 0f, 0f, 0.1f);
@@ -774,7 +844,7 @@ namespace AsioAudioUnity
             }
         }
 
-        private void DrawHover(Rect graph, WaveformData data, double visible, bool decibels)
+        private void DrawHover(Rect graph, WaveformData data, double visible, bool decibels, int lanes)
         {
             Vector2 mouse = Event.current.mousePosition;
             if (!graph.Contains(mouse) || GUIUtility.hotControl != 0) return;
@@ -784,9 +854,10 @@ namespace AsioAudioUnity
             // Levels under the mouse (one point wide)
             double secondsPerPoint = visible / graph.width;
             double start = _viewStart + (mouse.x - graph.x) * secondsPerPoint;
-            GetLevels(data, start, start + secondsPerPoint, out float min, out float max, out float rms, out bool hasData);
+            int lane = lanes > 1 ? Mathf.Clamp((int)((mouse.y - graph.y) / (graph.height / lanes)), 0, lanes - 1) : -1;
+            GetLevels(data, start, start + secondsPerPoint, lanes > 1 ? lane : -1, out float min, out float max, out float rms, out bool hasData);
 
-            string text = FormatTime(start, 3);
+            string text = (lanes > 1 ? "Channel " + LaneName(lane, lanes) + "   " : "") + FormatTime(start, 3);
             if (hasData)
             {
                 float peak = Mathf.Max(Mathf.Abs(min), Mathf.Abs(max));
@@ -803,10 +874,10 @@ namespace AsioAudioUnity
 
         // ---------- Rendering ----------
 
-        private void RenderTexture(WaveformData data, int width, int height, double start, double duration, float amplitudeZoom, bool decibels)
+        private void RenderTexture(WaveformData data, int width, int height, double start, double duration, float amplitudeZoom, bool decibels, int lanes)
         {
             if (_texture != null && data == _renderedData && width == _renderedWidth && height == _renderedHeight
-                && start == _renderedStart && duration == _renderedDuration && amplitudeZoom == _renderedAmplitudeZoom && decibels == _renderedDecibels)
+                && start == _renderedStart && duration == _renderedDuration && amplitudeZoom == _renderedAmplitudeZoom && decibels == _renderedDecibels && lanes == _renderedLanes)
             {
                 return;
             }
@@ -821,30 +892,39 @@ namespace AsioAudioUnity
             Array.Clear(_pixels, 0, _pixels.Length);
             Color32 peakColor = new Color32(255, 255, 255, 120);
             Color32 rmsColor = new Color32(255, 255, 255, 255);
-            float center = (height - 1) / 2f;
-            float half = (height - 1) / 2f;
-
-            int ToPixel(float amplitude)
-            {
-                float normalized = decibels
-                    ? Mathf.Sign(amplitude) * DecibelToNormalized(LinearToDecibels(Mathf.Abs(amplitude)))
-                    : Mathf.Clamp(amplitude * amplitudeZoom, -1f, 1f);
-                return Mathf.Clamp(Mathf.RoundToInt(center + normalized * half), 0, height - 1);
-            }
-
             double secondsPerPixel = duration / width;
-            for (int x = 0; x < width; x++)
+
+            // One lane per channel (the first at the top: texture rows go upwards), or a single lane with the mono mix.
+            for (int lane = 0; lane < lanes; lane++)
             {
-                double columnStart = start + x * secondsPerPixel;
-                GetLevels(data, columnStart, columnStart + secondsPerPixel, out float min, out float max, out float rms, out bool hasData);
-                if (!hasData) continue;
+                int laneHeight = height / lanes;
+                int laneBottom = lanes == 1 ? 0 : height - (lane + 1) * laneHeight;
+                if (lanes == 1) laneHeight = height;
+                int laneTop = laneBottom + laneHeight - 1 - (lanes > 1 ? 1 : 0); // 1 pixel between lanes
+                float center = (laneBottom + laneTop) / 2f;
+                float half = (laneTop - laneBottom) / 2f;
 
-                int peakBottom = ToPixel(min), peakTop = ToPixel(max);
-                int rmsBottom = Mathf.Max(peakBottom, ToPixel(-rms)), rmsTop = Mathf.Min(peakTop, ToPixel(rms));
-
-                for (int y = peakBottom; y <= peakTop; y++)
+                int ToPixel(float amplitude)
                 {
-                    _pixels[y * width + x] = y >= rmsBottom && y <= rmsTop ? rmsColor : peakColor;
+                    float normalized = decibels
+                        ? Mathf.Sign(amplitude) * DecibelToNormalized(LinearToDecibels(Mathf.Abs(amplitude)))
+                        : Mathf.Clamp(amplitude * amplitudeZoom, -1f, 1f);
+                    return Mathf.Clamp(Mathf.RoundToInt(center + normalized * half), laneBottom, laneTop);
+                }
+
+                for (int x = 0; x < width; x++)
+                {
+                    double columnStart = start + x * secondsPerPixel;
+                    GetLevels(data, columnStart, columnStart + secondsPerPixel, lanes > 1 ? lane : -1, out float min, out float max, out float rms, out bool hasData);
+                    if (!hasData) continue;
+
+                    int peakBottom = ToPixel(min), peakTop = ToPixel(max);
+                    int rmsBottom = Mathf.Max(peakBottom, ToPixel(-rms)), rmsTop = Mathf.Min(peakTop, ToPixel(rms));
+
+                    for (int y = peakBottom; y <= peakTop; y++)
+                    {
+                        _pixels[y * width + x] = y >= rmsBottom && y <= rmsTop ? rmsColor : peakColor;
+                    }
                 }
             }
 
@@ -854,12 +934,15 @@ namespace AsioAudioUnity
             _renderedData = data;
             _renderedWidth = width; _renderedHeight = height;
             _renderedStart = start; _renderedDuration = duration;
-            _renderedAmplitudeZoom = amplitudeZoom; _renderedDecibels = decibels;
+            _renderedAmplitudeZoom = amplitudeZoom; _renderedDecibels = decibels; _renderedLanes = lanes;
         }
 
-        // Min, max and RMS of the (mono) signal between two times.
-        private static void GetLevels(WaveformData data, double startSeconds, double endSeconds, out float min, out float max, out float rms, out bool hasData)
+        // Min, max and RMS between two times: of the mono mix (channel -1), or of a channel.
+        private static void GetLevels(WaveformData data, double startSeconds, double endSeconds, int channel, out float min, out float max, out float rms, out bool hasData)
         {
+            float[] mins = channel < 0 ? data.Min : data.ChannelMin[channel];
+            float[] maxs = channel < 0 ? data.Max : data.ChannelMax[channel];
+            float[] meanSquares = channel < 0 ? data.MeanSquare : data.ChannelMeanSquare[channel];
             double bucketsPerSecond = (double)data.SampleRate / WaveformData.FramesPerBucket;
             int firstBucket = Math.Max(0, (int)Math.Floor(startSeconds * bucketsPerSecond));
             int lastBucket = Math.Min(data.BucketCount, Math.Max(firstBucket + 1, (int)Math.Ceiling(endSeconds * bucketsPerSecond)));
@@ -868,9 +951,9 @@ namespace AsioAudioUnity
             double squares = 0;
             for (int bucket = firstBucket; bucket < lastBucket; bucket++)
             {
-                if (data.Min[bucket] < min) min = data.Min[bucket];
-                if (data.Max[bucket] > max) max = data.Max[bucket];
-                squares += data.MeanSquare[bucket];
+                if (mins[bucket] < min) min = mins[bucket];
+                if (maxs[bucket] > max) max = maxs[bucket];
+                squares += meanSquares[bucket];
             }
 
             hasData = lastBucket > firstBucket;

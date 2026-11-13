@@ -23,6 +23,10 @@ To send the position of a room (the listener, for example), add it in **Other Ob
 
 Unity's Y axis points up; Spat Revolution's Z axis does: the Spat Controller converts them. Set an **Origin** (e.g. the centre of your room) to send positions relative to it, and a **Position Scale** if your scene's units aren't metres.
 
+## Orientation
+
+For directivity, tick **Send Orientation** (in the *Sending* card): the yaw and pitch of each source are sent too, relative to the Origin. If the sources turn the wrong way in Spat Revolution, tick **Invert Yaw**. See [Orientation](/Documentation~/Reference/SpatController.md#orientation).
+
 ## Different numbers in Spat Revolution
 
 If a source must be another Spat source than its output channel, change its **Spat #** in the *Sent to Spat* table, or untick **Send** to stop sending it. The reset button goes back to the output channel, and two sources with the same number show a warning.

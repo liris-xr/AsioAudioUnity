@@ -95,10 +95,11 @@ namespace AsioAudioUnity
         private void DrawHeader()
         {
             bool connected = _manager.IsConnected;
+            bool unityAudio = _manager.IsUsingUnityAudio;
 
             GUILayout.BeginHorizontal();
-            _statusStyle.normal.textColor = connected ? PlayingColor : ErrorColor;
-            GUILayout.Label(connected ? "● Connected" : "● Not connected", _statusStyle);
+            _statusStyle.normal.textColor = connected ? PlayingColor : unityAudio ? PausedColor : ErrorColor;
+            GUILayout.Label(connected ? "● Connected" : unityAudio ? "● Unity audio (no ASIO driver)" : "● Not connected", _statusStyle);
             GUILayout.FlexibleSpace();
 
             if (!_collapsed && GUILayout.Toggle(_showSettings, "Settings", _toggleButtonStyle) != _showSettings) _showSettings = !_showSettings;
@@ -220,7 +221,7 @@ namespace AsioAudioUnity
 
             // Line 1: channel, name, status, time
             GUILayout.BeginHorizontal();
-            GUILayout.Label(source.TargetOutputChannel.ToString(), _channelStyle, GUILayout.Width(26f));
+            GUILayout.Label(source.OutputChannelCount > 1 ? source.TargetOutputChannel + "–" + (source.TargetOutputChannel + source.OutputChannelCount - 1) : source.TargetOutputChannel.ToString(), _channelStyle, GUILayout.Width(source.OutputChannelCount > 1 ? 40f : 26f));
             GUILayout.Label(source.gameObject.name, _boldStyle, GUILayout.MinWidth(60f));
             GUILayout.FlexibleSpace();
             _statusStyle.normal.textColor = GetStatusColor(source.AudioStatus);
@@ -255,10 +256,16 @@ namespace AsioAudioUnity
 
             GUILayout.Label(AsioVolume.FormatLinear(source.Volume), _smallStyle, GUILayout.Width(46f));
 
+            // One meter per channel the source plays on (stacked)
+            IReadOnlyList<float> levels = source.ChannelMeterLevels;
+            int meterCount = Mathf.Max(1, levels.Count);
+            float meterHeight = meterCount == 1 ? 6f : Mathf.Max(2f, Mathf.Min(4f, (14f - (meterCount - 1)) / meterCount));
+            float meterBand = meterCount * meterHeight + (meterCount - 1);
             GUILayout.BeginVertical(GUILayout.Width(40f));
-            GUILayout.Space(8f);
-            Rect meterRect = GUILayoutUtility.GetRect(40f, 6f);
-            DrawMeter(meterRect, source.MeterLevel);
+            GUILayout.Space(Mathf.Max(2f, 11f - meterBand / 2f));
+            Rect meterRect = GUILayoutUtility.GetRect(40f, meterBand);
+            if (levels.Count <= 1) DrawMeter(meterRect, source.MeterLevel);
+            else for (int c = 0; c < levels.Count; c++) DrawMeter(new Rect(meterRect.x, meterRect.y + c * (meterHeight + 1f), meterRect.width, meterHeight), levels[c]);
             GUILayout.EndVertical();
             GUILayout.EndHorizontal();
 

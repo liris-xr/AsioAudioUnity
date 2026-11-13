@@ -24,10 +24,12 @@
 
 Choose a driver in *Project Settings > ASIO Audio*. A driver set on another computer shows *(not installed)*: pick one installed on this machine.
 
+With *Fall Back To Unity Audio* (on by default), the sources then play through Unity's audio output, all channels mixed together, and the status shows *Unity audio (no ASIO driver)*. If nothing is heard: Unity's audio must be enabled (*Project Settings > Audio > Disable Unity Audio* off), and the scene needs an Audio Listener.
+
 ## "Audio file not found"
 
-- The path is stored from the project folder (e.g. `Assets/Sounds/rain.wav`). If you moved or renamed the file, set it again in the Inspector.
-- When a scene is opened, sources whose file is missing are relinked automatically to a file with the same name in the scene's folder (this is logged in the Console).
+- Files inside the project are tracked by Unity: moving or renaming them in the Project window updates the sources of the open scenes, and opening a scene recovers paths that no longer exist. If the Inspector still shows the error, click **Use the moved file**, or set the file again.
+- Files moved outside Unity (in the Explorer) keep their GUID only if their `.meta` file moved with them. Otherwise, a file with the same name in the scene's folder is used (this is logged in the Console).
 - In a build, the files used by the sources of the built scenes are copied next to the player automatically. Files set from code at runtime aren't: copy them yourself, at the same relative path.
 - OGG files can't be read: convert them to WAV or FLAC.
 
@@ -44,6 +46,12 @@ Sources started one by one with `Play` can start a few milliseconds apart. Use *
 - Spat Revolution needs an OSC input connection (*Preferences > OSC Main*) on the Spat Controller's port (8100 by default). Click **Send Positions Now** on the Spat Controller to test.
 - Each source is sent as the Spat source numbered like its output channel: check the numbers in the *Sent to Spat* table.
 - If the Spat Controller warns about *Source Position OSC* components, positions are sent twice: remove them with its button.
+
+## Unity doesn't follow REAPER
+
+- *Follow REAPER* needs REAPER's OSC control surface in mode *Configure device IP + local port*, with its *Device port* set to the controller's *Listen Port* (9000 by default).
+- If the Inspector says the port can't be opened, another application uses it: choose another port, in both.
+- Tick **Log Messages** to see what REAPER sends.
 
 ## REAPER doesn't follow Unity
 

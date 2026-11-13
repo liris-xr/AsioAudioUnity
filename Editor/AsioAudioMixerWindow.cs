@@ -110,6 +110,11 @@ namespace AsioAudioUnity
                 statusColor = AsioEditorUtility.PlayingColor;
                 statusText = manager.AsioDriverName + "  ·  " + manager.TargetSampleRate + " Hz  ·  " + manager.AsioDriverOutputChannelCount + " outputs";
             }
+            else if (manager.IsUsingUnityAudio)
+            {
+                statusColor = AsioEditorUtility.PausedColor;
+                statusText = "Unity audio (no ASIO driver): all channels mixed  ·  " + manager.OutputSampleRate + " Hz";
+            }
             else
             {
                 statusColor = AsioEditorUtility.ErrorColor;
@@ -172,7 +177,7 @@ namespace AsioAudioUnity
         // The master volume (ASIO Audio Settings), applied to all sources, with the level sent to the driver, and the transport of all sources.
         private void DrawMasterStrip(AsioAudioSettings settings, AsioAudioManager manager)
         {
-            bool connected = manager != null && manager.IsConnected;
+            bool connected = manager != null && (manager.IsConnected || manager.IsUsingUnityAudio);
             EditorGUILayout.BeginVertical(EditorStyles.helpBox, GUILayout.Width(StripWidth));
 
             GUIStyle nameStyle = new GUIStyle(EditorStyles.boldLabel) { alignment = TextAnchor.MiddleCenter };
@@ -269,7 +274,7 @@ namespace AsioAudioUnity
             Rect faderRect = new Rect(faderAreaRect.center.x - AsioVolumeFader.VerticalWidth / 2f, faderAreaRect.y, AsioVolumeFader.VerticalWidth, faderAreaRect.height);
 
             EditorGUI.BeginChangeCheck();
-            float volume = AsioVolumeFader.Draw(faderRect, source.Volume, isPlaying ? source.MeterLevel : 0f, true);
+            float volume = AsioVolumeFader.Draw(faderRect, source.Volume, AsioEditorUtility.GetMeterLevels(source, isPlaying), true);
             if (EditorGUI.EndChangeCheck()) AsioEditorUtility.RecordChange(source, "Change Volume", () => source.Volume = volume);
 
             GUILayout.Label(new GUIContent(AsioVolume.FormatLinear(source.Volume), "Volume (double-click the fader to reset to 0 dB)"), EditorStyles.centeredGreyMiniLabel, ContentWidth);

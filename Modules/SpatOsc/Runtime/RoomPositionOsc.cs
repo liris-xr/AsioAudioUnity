@@ -4,7 +4,7 @@ using UnityEngine;
 namespace AsioAudioUnity
 {
     /// <summary>Obsolete: replaced by the <see cref="SpatController"/> (add the room to its Other Objects, as a Room).</summary>
-    [Obsolete("Replaced by the Spat Controller, which sends the positions of every ASIO Audio Source and of rooms from a single component. Use its Inspector button to replace this component.")]
+    [Obsolete("Replaced by the Spat Controller, which sends the positions of every ASIO Audio Source and of rooms from a single component. Use its Inspector button to replace this component. Will be removed in version 4.0.")]
     [AddComponentMenu("")] // Hidden from Add Component: existing components keep working
     public class RoomPositionOsc : ObjectPositionOsc
     {

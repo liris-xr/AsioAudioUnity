@@ -49,6 +49,17 @@ namespace AsioAudioUnity
             set { _masterVolume = Mathf.Clamp01(value); }
         }
 
+        [SerializeField] private bool _fallBackToUnityAudio = true;
+        /// <summary>
+        /// When no ASIO driver can be used (none set, not installed, or failing to start), play the sources through Unity's own audio output instead,
+        /// all channels mixed together (with a warning). Lets a project be tested on a computer without the show's ASIO setup.
+        /// </summary>
+        public bool FallBackToUnityAudio
+        {
+            get { return _fallBackToUnityAudio; }
+            set { if (_fallBackToUnityAudio != value) { _fallBackToUnityAudio = value; NotifyChanged(); } }
+        }
+
         [SerializeField] private bool _pauseWithEditor = true;
         /// <summary>
         /// In the Editor, pausing Play mode (the Pause button) also pauses the playing sources, and resuming plays them again,

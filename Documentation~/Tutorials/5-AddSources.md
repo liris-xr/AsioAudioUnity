@@ -6,7 +6,7 @@ An **ASIO Audio Source** works like a Unity Audio Source, but plays on one chann
 
 | **Unity Audio Source** | **ASIO Audio Source** |
 |-|-|
-| `AudioClip` | `AudioFilePath`: the path of the audio file (it doesn't need to be imported as an AudioClip) |
+| `AudioClip` | **Audio Clip**: an AudioClip of the project, whose original file is played (untouched, streamed from disk) |
 | `Volume` | `Volume` (or `VolumeDecibels`) |
 | `PlayOnAwake` | `PlayOnEnable` |
 | `Loop` | `Loop`, with an optional crossfade at the loop point |
@@ -23,8 +23,8 @@ An **ASIO Audio Source** works like a Unity Audio Source, but plays on one chann
 
 <img src="/Documentation~/pictures/asioaudiosource-inspector.png" alt="The ASIO Audio Source Inspector" width="500"/>
 
-1. **Audio file**: drag a file onto the *Audio File* card of the Inspector, or click *Browse…*. WAV, AIFF, MP3 and FLAC work (not OGG). Use files inside the project's `Assets` folder: they are copied with builds automatically.
-2. **Output channel**: pick it in the channel grid of the *Mix & Output* card. Each source needs its own channel, between 1 and the driver's number of outputs: channels used by other sources are marked, and conflicts show a warning (*Project Settings > ASIO Audio > Output Channels* can fix them all).
+1. **Audio Clip**: drag an AudioClip from the Project window onto the *Audio File* card of the Inspector, or pick it in the **Audio Clip** field. WAV, AIFF and MP3 work (not OGG). The clip's file is copied with builds automatically, and moving or renaming it keeps the source working.
+2. **Output channel**: pick it in the channel grid of the *Mix & Output* card. For a stereo or multichannel file that should reach Spat Revolution as several inputs, tick **Play All Channels**: each channel of the file then plays on its own output, from this one on. Each source needs its own channel, between 1 and the driver's number of outputs: channels used by other sources are marked, and conflicts show a warning (*Project Settings > ASIO Audio > Output Channels* can fix them all).
 3. **Playback**: *Play On Enable*, *Loop* (and *Loop Crossfade* for files that don't loop cleanly), *Fade In* / *Fade Out*.
 4. **Preview** (in Edit mode): plays the source through the driver without entering Play mode.
 
@@ -54,6 +54,10 @@ public class Cue : MonoBehaviour
 ```
 
 Calling `Play` on several sources one after the other can start them a few milliseconds apart: to keep stems in sync, use the manager's `PlayAll`, `PauseAll`, `StopAll` and `RestartAll` (see [AsioAudioManager](/Documentation~/Reference/AsioAudioManager.md)).
+
+## Lay out cues on a Timeline
+
+With Unity's Timeline, an **ASIO Audio track** bound to a source plays it during each of its clips, and clips starting together start on the same sample. A **REAPER Command track** sends REAPER commands at its markers. See [Timeline tracks](/Documentation~/Reference/Timeline.md).
 
 ## Mix
 

@@ -26,6 +26,7 @@ namespace AsioAudioUnity
         /// <summary>
         /// Path of the audio file to play: relative to the project folder (e.g. "Assets/Sounds/file.wav"), or absolute.
         /// Changing it at runtime stops the source and loads the new file.
+        /// In the Editor, a file inside the project is also tracked by its asset GUID, so the path is recovered if the file is moved or renamed.
         /// </summary>
         public string AudioFilePath
         {
@@ -34,6 +35,9 @@ namespace AsioAudioUnity
             {
                 if (_audioFilePath == value) return;
                 _audioFilePath = value;
+#if UNITY_EDITOR
+                _audioFileGuid = GetAssetGuid(value);
+#endif
                 if (IsRuntimeActive)
                 {
                     Stop();
@@ -43,6 +47,20 @@ namespace AsioAudioUnity
                     OnAudioFilePathChanged.Invoke();
             }
         }
+
+        // The asset GUID of the audio file when it is inside the project (empty otherwise): used in the Editor to find the file again
+        // after it was moved or renamed (the path stays the reference: the GUID only recovers a path that no longer exists).
+        // Not a reference to the asset, so the build doesn't include the file's AudioClip data on top of the copied file.
+        [SerializeField][HideInInspector] private string _audioFileGuid;
+        internal string AudioFileGuid => _audioFileGuid;
+
+#if UNITY_EDITOR
+        internal static string GetAssetGuid(string audioFilePath)
+        {
+            if (string.IsNullOrEmpty(audioFilePath) || Path.IsPathRooted(audioFilePath)) return "";
+            return UnityEditor.AssetDatabase.AssetPathToGUID(audioFilePath.Replace('\\', '/')) ?? "";
+        }
+#endif
 
         /// <summary>
         /// The full path of the audio file. Relative paths are resolved from the project folder in the Editor, and from the player's folder in builds.
@@ -148,6 +166,14 @@ namespace AsioAudioUnity
         /// </summary>
         public float MeterLevel { get; private set; }
 
+        private float[] _channelMeterLevels = new float[0];
+        private float[] _channelPeaks = new float[1];
+        /// <summary>
+        /// The output level of each channel the source plays on (peak, 0 to 1, after volume and mute), with a meter-like falloff:
+        /// one value, or one per channel of the file with <see cref="PlayAllChannels"/> (Read Only).
+        /// </summary>
+        public System.Collections.Generic.IReadOnlyList<float> ChannelMeterLevels => _channelMeterLevels;
+
         [SerializeField] private bool _preloadIntoMemory = false;
         /// <summary>
         /// Decode the whole audio file into memory when it is loaded, instead of reading it from disk while playing.
@@ -252,6 +278,39 @@ namespace AsioAudioUnity
                 _fadeOutCurve = value;
                 if (_voice != null) _voice.FadeOutCurve = value;
             }
+        }
+
+        [SerializeField] private bool _playAllChannels = false;
+        /// <summary>
+        /// Plays every channel of the file on consecutive output channels, starting at <see cref="TargetOutputChannel"/>
+        /// (e.g. a stereo file on channels 5 and 6), instead of mixing the file down to mono on one channel (default).
+        /// Changing it reloads the file, without interrupting playback.
+        /// </summary>
+        public bool PlayAllChannels
+        {
+            get { return _playAllChannels; }
+            set
+            {
+                if (_playAllChannels == value) return;
+                _playAllChannels = value;
+                if (IsRuntimeActive && _voice.IsLoaded) ApplyChannelMode();
+            }
+        }
+
+        /// <summary>
+        /// The number of output channels this source uses: 1, or the file's channel count with <see cref="PlayAllChannels"/>
+        /// (known once the file has been loaded).
+        /// </summary>
+        public int OutputChannelCount => !_playAllChannels ? 1 : _voice != null && _voice.IsLoaded ? _voice.ChannelCount : Mathf.Max(1, _channels);
+
+        /// <summary>Whether this source plays on the given output channel (1-based).</summary>
+        public bool UsesOutputChannel(int channel) => _targetOutputChannel > 0 && channel >= _targetOutputChannel && channel < _targetOutputChannel + OutputChannelCount;
+
+        // Reloads the file mixed down to mono or with all its channels, and checks the output channels it now uses.
+        private void ApplyChannelMode()
+        {
+            Revalidate(false); // Sees the change, reloads the file keeping its position, and checks the channels
+            if (OnTargetOutputChannelChanged != null) OnTargetOutputChannelChanged.Invoke();
         }
 
         // Format of the audio file (as stored on disk for WAV files, as decoded for other formats)
@@ -386,6 +445,12 @@ namespace AsioAudioUnity
                 ReloadKeepingPosition();
             }
 
+            if (_voice.IsLoaded && _voice.DownmixToMono == _playAllChannels)
+            {
+                // Play All Channels edited in the Inspector during Play mode
+                ApplyChannelMode();
+            }
+
             if (_outputChannelEditedInInspector)
             {
                 _outputChannelEditedInInspector = false;
@@ -407,7 +472,14 @@ namespace AsioAudioUnity
             }
 
             // Falls by 20 dB per second
-            MeterLevel = Mathf.Max(_voice.ConsumePeak(), MeterLevel * Mathf.Pow(0.1f, Time.unscaledDeltaTime));
+            float falloff = Mathf.Pow(0.1f, Time.unscaledDeltaTime);
+            MeterLevel = Mathf.Max(_voice.ConsumePeak(), MeterLevel * falloff);
+
+            int channels = _voice.IsLoaded ? _voice.ChannelCount : 0;
+            if (_channelMeterLevels.Length != channels) _channelMeterLevels = new float[channels];
+            if (_channelPeaks.Length < channels) _channelPeaks = new float[channels];
+            int measured = _voice.ConsumeChannelPeaks(_channelPeaks);
+            for (int c = 0; c < channels; c++) _channelMeterLevels[c] = Mathf.Max(c < measured ? _channelPeaks[c] : 0f, _channelMeterLevels[c] * falloff);
         }
 
         /// <summary>
@@ -421,6 +493,10 @@ namespace AsioAudioUnity
         // Called when a value is edited in the Inspector (which writes the fields directly, bypassing the property setters).
         private void OnValidate()
         {
+#if UNITY_EDITOR
+            // Scenes saved before files were tracked by GUID get it here (saved with the scene the next time it is saved).
+            if (string.IsNullOrEmpty(_audioFileGuid) && !string.IsNullOrEmpty(_audioFilePath)) _audioFileGuid = GetAssetGuid(_audioFilePath);
+#endif
             if (_voice == null) return; // Edit mode, or not initialised yet
 
             _voice.Volume = Mathf.Clamp01(_volume);
@@ -463,8 +539,19 @@ namespace AsioAudioUnity
             _voice.FadeOutCurve = _fadeOutCurve;
             _voice.LoopCrossfadeSeconds = _loopCrossfade;
             _voice.OutputChannel = _targetOutputChannel;
+            bool channelModeChanged = _voice.DownmixToMono == _playAllChannels;
+            _voice.DownmixToMono = !_playAllChannels;
 
-            if (reloadAudioFile || !_voice.IsLoaded) return LoadAudioFile();
+            if (reloadAudioFile || channelModeChanged || !_voice.IsLoaded)
+            {
+                if (!LoadAudioFile(channelModeChanged && !reloadAudioFile && _voice.IsLoaded)) return false;
+                // With all its channels, the source's channel count is only known now that the file is loaded: check them again.
+                if (_playAllChannels && !asioAudioManager.RequestAddAsioAudioSource(this))
+                {
+                    if (AudioStatus != AsioAudioStatus.Stopped) Stop();
+                    return false;
+                }
+            }
             return true;
         }
 
@@ -481,7 +568,7 @@ namespace AsioAudioUnity
 
             try
             {
-                _voice.Load(resolvedAudioFilePath, _manager.TargetSampleRate, PreloadIntoMemory, keepPosition);
+                _voice.Load(resolvedAudioFilePath, _manager.OutputSampleRate, PreloadIntoMemory, keepPosition);
             }
             catch (Exception e)
             {

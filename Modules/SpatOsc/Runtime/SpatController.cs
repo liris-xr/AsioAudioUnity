@@ -53,6 +53,10 @@ namespace AsioAudioUnity
         public string SourcePosition = "/source/{0}/xyz";
         [Tooltip("Position of a room: x, y, z (Spat's axes).")]
         public string RoomPosition = "/room/{0}/xyz";
+        [Tooltip("Yaw of a source, in degrees (sent with Send Orientation).")]
+        public string SourceYaw = "/source/{0}/yaw";
+        [Tooltip("Pitch of a source, in degrees (sent with Send Orientation).")]
+        public string SourcePitch = "/source/{0}/pitch";
     }
 
     /// <summary>
@@ -166,6 +170,33 @@ namespace AsioAudioUnity
             set { _resetPositionsOnQuit = value; }
         }
 
+        [SerializeField] private bool _sendOrientation = false;
+        /// <summary>
+        /// Also sends the orientation of the sources (yaw and pitch, in degrees, relative to the Origin), for directivity in Spat Revolution.
+        /// Yaw 0 faces the Origin's forward (Unity's +Z), positive turning right seen from above; pitch is positive upwards.
+        /// </summary>
+        public bool SendOrientation
+        {
+            get { return _sendOrientation; }
+            set { _sendOrientation = value; _lastSent.Clear(); }
+        }
+
+        [SerializeField] private bool _invertYaw = false;
+        /// <summary>Inverts the sign of the yaw sent (positive turning left), if Spat Revolution's convention is the opposite.</summary>
+        public bool InvertYaw
+        {
+            get { return _invertYaw; }
+            set { _invertYaw = value; }
+        }
+
+        [SerializeField][Min(0f)] private float _rotationThreshold = 0.5f;
+        /// <summary>Smallest rotation, in degrees, that sends a new orientation (with Send Orientation).</summary>
+        public float RotationThreshold
+        {
+            get { return _rotationThreshold; }
+            set { _rotationThreshold = Mathf.Max(0f, value); }
+        }
+
         [SerializeField] private SpatOscAddresses _addresses = new SpatOscAddresses();
         /// <summary>The OSC addresses of Spat Revolution.</summary>
         public SpatOscAddresses Addresses => _addresses;
@@ -180,8 +211,8 @@ namespace AsioAudioUnity
 
         private readonly OscUdpSender _sender = new OscUdpSender();
 
-        // Last message sent for each Spat object ("source/3", "room/1").
-        private readonly Dictionary<string, (Vector3 position, float time)> _lastSent = new Dictionary<string, (Vector3, float)>();
+        // Last position and rotation sent for each Spat object ("source/3", "room/1").
+        private readonly Dictionary<string, (Vector3 position, Quaternion rotation, float time)> _lastSent = new Dictionary<string, (Vector3, Quaternion, float)>();
 
         private AsioAudioSource[] _sources = new AsioAudioSource[0];
         private float _nextSourceRefresh;
@@ -233,6 +264,19 @@ namespace AsioAudioUnity
             return new Vector3(local.x, local.z, local.y);
         }
 
+        /// <summary>
+        /// Spat's orientation of a Unity rotation, in degrees, relative to the Origin: yaw (0 facing the Origin's forward, positive turning right
+        /// seen from above, or left with Invert Yaw) and pitch (positive upwards).
+        /// </summary>
+        public Vector2 ToSpatOrientation(Quaternion worldRotation)
+        {
+            Quaternion local = _origin != null ? Quaternion.Inverse(_origin.rotation) * worldRotation : worldRotation;
+            Vector3 forward = local * Vector3.forward;
+            float yaw = Mathf.Atan2(forward.x, forward.z) * Mathf.Rad2Deg;
+            float pitch = Mathf.Asin(Mathf.Clamp(forward.y, -1f, 1f)) * Mathf.Rad2Deg;
+            return new Vector2(_invertYaw ? -yaw : yaw, pitch);
+        }
+
         // ---------- Lifecycle ----------
 
         private void OnEnable()
@@ -250,18 +294,31 @@ namespace AsioAudioUnity
             {
                 string key = Key(tracked.Type, tracked.Index);
                 Vector3 position = tracked.Target.position;
+                Quaternion rotation = tracked.Target.rotation;
+                bool withOrientation = _sendOrientation && tracked.Type == SpatObjectType.Source;
 
-                if (_lastSent.TryGetValue(key, out (Vector3 position, float time) last))
+                bool rotated = true;
+                if (_lastSent.TryGetValue(key, out (Vector3 position, Quaternion rotation, float time) last))
                 {
                     float elapsed = now - last.time;
                     if (_maxSendRate > 0f && elapsed < 1f / _maxSendRate) continue;
                     bool moved = (position - last.position).sqrMagnitude > _movementThreshold * _movementThreshold;
+                    rotated = withOrientation && Quaternion.Angle(rotation, last.rotation) > _rotationThreshold;
                     bool keepAliveDue = _keepAliveInterval > 0f && elapsed >= _keepAliveInterval;
-                    if (!moved && !keepAliveDue) continue;
+                    if (!moved && !rotated && !keepAliveDue) continue;
+                    if (keepAliveDue) rotated = true;
+                    if (!moved && !keepAliveDue)
+                    {
+                        // Only the rotation changed: the position isn't sent again
+                        SendSourceOrientation(tracked.Index, ToSpatOrientation(rotation));
+                        _lastSent[key] = (last.position, rotation, now);
+                        continue;
+                    }
                 }
 
                 SendPosition(tracked.Type, tracked.Index, ToSpatPosition(position));
-                _lastSent[key] = (position, now);
+                if (withOrientation && rotated) SendSourceOrientation(tracked.Index, ToSpatOrientation(rotation));
+                _lastSent[key] = (position, rotation, now);
             }
         }
 
@@ -295,7 +352,8 @@ namespace AsioAudioUnity
             foreach (TrackedPosition tracked in GetTrackedPositions())
             {
                 SendPosition(tracked.Type, tracked.Index, ToSpatPosition(tracked.Target.position));
-                _lastSent[Key(tracked.Type, tracked.Index)] = (tracked.Target.position, Time.unscaledTime);
+                if (_sendOrientation && tracked.Type == SpatObjectType.Source) SendSourceOrientation(tracked.Index, ToSpatOrientation(tracked.Target.rotation));
+                _lastSent[Key(tracked.Type, tracked.Index)] = (tracked.Target.position, tracked.Target.rotation, Time.unscaledTime);
             }
         }
 
@@ -304,6 +362,13 @@ namespace AsioAudioUnity
         {
             string template = type == SpatObjectType.Source ? _addresses.SourcePosition : _addresses.RoomPosition;
             Send(string.Format(CultureInfo.InvariantCulture, template, index), spatPosition.x, spatPosition.y, spatPosition.z);
+        }
+
+        /// <summary>Sends the orientation of a source: yaw and pitch, in degrees (see <see cref="ToSpatOrientation"/>).</summary>
+        public void SendSourceOrientation(int index, Vector2 yawPitch)
+        {
+            Send(string.Format(CultureInfo.InvariantCulture, _addresses.SourceYaw, index), yawPitch.x);
+            Send(string.Format(CultureInfo.InvariantCulture, _addresses.SourcePitch, index), yawPitch.y);
         }
 
         /// <summary>Sends any OSC message to Spat Revolution (int, float or string values).</summary>

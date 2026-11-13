@@ -57,12 +57,8 @@ namespace AsioAudioUnity
         {
             if (asioAudioSource.TargetOutputChannel > 0) return;
 
-            HashSet<int> usedChannels = new HashSet<int>(FindAllAsioAudioSources()
-                .Where(otherSource => otherSource != asioAudioSource)
-                .Select(otherSource => otherSource.TargetOutputChannel));
-
-            int targetOutputChannel = 1;
-            while (usedChannels.Contains(targetOutputChannel)) targetOutputChannel++;
+            HashSet<int> usedChannels = AsioEditorUtility.GetUsedChannels(FindAllAsioAudioSources().Where(otherSource => otherSource != asioAudioSource));
+            int targetOutputChannel = AsioEditorUtility.FindFreeChannels(usedChannels, AsioEditorUtility.GetOutputChannelCount(asioAudioSource));
 
             asioAudioSource.TargetOutputChannel = targetOutputChannel;
             EditorUtility.SetDirty(asioAudioSource);

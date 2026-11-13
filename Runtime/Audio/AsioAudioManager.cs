@@ -231,6 +231,16 @@ namespace AsioAudioUnity
         /// <summary>True when the ASIO driver is connected and playing.</summary>
         public bool IsConnected => AsioOutPlayer != null;
 
+        /// <summary>
+        /// Whether the sources play through Unity's own audio output, because no ASIO driver could be used and the settings allow the fallback
+        /// (all channels mixed together, on every speaker).
+        /// </summary>
+        public bool IsUsingUnityAudio => _unityAudioOutput != null;
+
+        /// <summary>The sample rate the sources are mixed at: the driver's (<see cref="TargetSampleRate"/>), or Unity's output rate with the Unity audio fallback.</summary>
+        public int OutputSampleRate => _mixer != null ? _mixer.WaveFormat.SampleRate : TargetSampleRate;
+        private AsioUnityAudioOutput _unityAudioOutput;
+
         private AsioAudioManagerOverlay _overlay;
 
         // Mixes all sources into one stream for the driver. Only exists while connected.
@@ -286,7 +296,8 @@ namespace AsioAudioUnity
                 if (!_notProcessingWarned && _mixer.RenderedFrames == 0 && Time.realtimeSinceStartup - _connectedAt > 2f)
                 {
                     _notProcessingWarned = true;
-                    Debug.LogWarning("ASIO Audio Manager: the ASIO driver \"" + AsioDriverName + "\" is connected but isn't asking for audio, so nothing can be heard. "
+                    if (IsUsingUnityAudio) Debug.LogWarning("ASIO Audio Manager: Unity's audio output isn't playing, so nothing can be heard. Check that Unity's audio is enabled (Project Settings > Audio > Disable Unity Audio is off).");
+                    else Debug.LogWarning("ASIO Audio Manager: the ASIO driver \"" + AsioDriverName + "\" is connected but isn't asking for audio, so nothing can be heard. "
                         + "With ReaRoute, REAPER must be running with its audio device open (check that REAPER isn't set to close the audio device when inactive or stopped, "
                         + "in Preferences > Audio). With another driver, check that no other application holds it.");
                 }
@@ -375,9 +386,48 @@ namespace AsioAudioUnity
         /// Connects to the ASIO driver set in AsioDriverName, and starts playing the mix of all registered sources.
         /// Errors are logged, and the manager stays disconnected.
         /// </summary>
+        // Connects to the ASIO driver, or, if it can't and the settings allow it, plays through Unity's audio instead.
         private bool Connect()
         {
             if (IsConnected) return true;
+            if (ConnectAsio()) return true;
+            if (Settings != null && Settings.FallBackToUnityAudio) StartUnityAudioFallback();
+            return false;
+        }
+
+        // A connection problem: an error, or a warning when the sources will play through Unity's audio instead.
+        private void ReportConnectionProblem(string message)
+        {
+            if (Settings != null && Settings.FallBackToUnityAudio) Debug.LogWarning(message + " The sources play through Unity's audio output instead (all channels mixed together).");
+            else Debug.LogError(message);
+        }
+
+        private void StartUnityAudioFallback()
+        {
+            int channels = Mathf.Max(2, AsioAudioSources.Where(source => source).Select(source => source.TargetOutputChannel + source.OutputChannelCount - 1).DefaultIfEmpty(0).Max());
+            channels = Mathf.Max(channels, 64); // Room for sources added later on high channels (all channels are mixed together anyway)
+            int sampleRate = AudioSettings.outputSampleRate;
+            if (FindObjectsByType<AudioListener>(FindObjectsSortMode.None).Length == 0)
+            {
+                Debug.LogWarning("ASIO Audio Manager: the scene has no Audio Listener, so Unity's audio output (used instead of the ASIO driver) won't be heard. Add one, e.g. on the camera.");
+            }
+
+            AsioMixer mixer = new AsioMixer(sampleRate, channels) { MasterVolume = MasterVolume };
+            foreach (AsioAudioSource asioAudioSource in AsioAudioSources)
+            {
+                if (asioAudioSource == null || asioAudioSource.Voice == null) continue;
+                asioAudioSource.Voice.SetOutputSampleRate(sampleRate);
+                mixer.AddVoice(asioAudioSource.Voice);
+            }
+
+            _mixer = mixer;
+            _unityAudioOutput = AsioUnityAudioOutput.Create(transform, mixer);
+            _connectedAt = Time.realtimeSinceStartup;
+            _notProcessingWarned = false;
+        }
+
+        private bool ConnectAsio()
+        {
 
             _attemptedDriverName = AsioDriverName;
             _attemptedSampleRate = TargetSampleRate;
@@ -385,13 +435,13 @@ namespace AsioAudioUnity
 
             if (string.IsNullOrEmpty(AsioDriverName))
             {
-                Debug.LogError("ASIO Audio Manager: no ASIO driver is set: choose one in Project Settings > ASIO Audio. Available drivers: " + GetAvailableDriverNamesText());
+                ReportConnectionProblem("ASIO Audio Manager: no ASIO driver is set: choose one in Project Settings > ASIO Audio. Available drivers: " + GetAvailableDriverNamesText() + ".");
                 return false;
             }
 
             if (!AsioOut.GetDriverNames().Contains(AsioDriverName))
             {
-                Debug.LogError("ASIO Audio Manager: the ASIO driver \"" + AsioDriverName + "\" was not found on the system. Available drivers: " + GetAvailableDriverNamesText());
+                ReportConnectionProblem("ASIO Audio Manager: the ASIO driver \"" + AsioDriverName + "\" was not found on the system. Available drivers: " + GetAvailableDriverNamesText() + ".");
                 return false;
             }
 
@@ -455,7 +505,7 @@ namespace AsioAudioUnity
             }
             catch (Exception e)
             {
-                Debug.LogError("ASIO Audio Manager: could not start the ASIO driver \"" + AsioDriverName + "\" at " + TargetSampleRate + " Hz, " + (int)TargetBitsPerSample + " bits: " + e.GetBaseException().Message);
+                ReportConnectionProblem("ASIO Audio Manager: could not start the ASIO driver \"" + AsioDriverName + "\" at " + TargetSampleRate + " Hz, " + (int)TargetBitsPerSample + " bits: " + e.GetBaseException().Message + ".");
                 asioOut?.Dispose();
                 return false;
             }
@@ -469,6 +519,11 @@ namespace AsioAudioUnity
 
         private void Disconnect()
         {
+            if (_unityAudioOutput != null)
+            {
+                _unityAudioOutput.Close();
+                _unityAudioOutput = null;
+            }
             if (AsioOutPlayer != null)
             {
                 AsioOutPlayer.PlaybackStopped -= OnAsioPlaybackStopped;
@@ -533,12 +588,18 @@ namespace AsioAudioUnity
             {
                 Debug.LogError("The ASIO Audio Source attached to GameObject \"" + asioAudioSource.gameObject.name + "\" targets output channel " + asioAudioSource.TargetOutputChannel + ", but the ASIO driver \"" + AsioDriverName + "\" only has " + AsioDriverOutputChannelCount + " output channels. It will be ignored.");
             }
-            else if (AsioAudioSources.Any(otherAsioAudioSource => otherAsioAudioSource != asioAudioSource && otherAsioAudioSource && otherAsioAudioSource.TargetOutputChannel == asioAudioSource.TargetOutputChannel))
+            else if (AsioAudioSources.Any(otherAsioAudioSource => otherAsioAudioSource != asioAudioSource && otherAsioAudioSource && SharesOutputChannel(otherAsioAudioSource, asioAudioSource)))
             {
-                Debug.LogError("The targeted output channel of the ASIO Audio Source attached to GameObject \"" + asioAudioSource.gameObject.name + "\" is already specified on another ASIO Audio Source, and needs to be unique. It will be ignored.");
+                Debug.LogError("The targeted output channel of the ASIO Audio Source attached to GameObject \"" + asioAudioSource.gameObject.name + "\" is already used by another ASIO Audio Source, and needs to be unique. It will be ignored.");
             }
             else
             {
+                int lastChannel = asioAudioSource.TargetOutputChannel + asioAudioSource.OutputChannelCount - 1;
+                if (IsConnected && lastChannel > AsioDriverOutputChannelCount)
+                {
+                    Debug.LogWarning("The ASIO Audio Source attached to GameObject \"" + asioAudioSource.gameObject.name + "\" plays " + asioAudioSource.OutputChannelCount + " channels from output channel "
+                        + asioAudioSource.TargetOutputChannel + ", but the ASIO driver \"" + AsioDriverName + "\" only has " + AsioDriverOutputChannelCount + " output channels: the channels beyond are not played.");
+                }
                 if (!AsioAudioSources.Contains(asioAudioSource)) AsioAudioSources.Add(asioAudioSource);
                 if (_mixer != null && asioAudioSource.Voice != null) _mixer.AddVoice(asioAudioSource.Voice);
                 return true;
@@ -546,6 +607,13 @@ namespace AsioAudioUnity
 
             RemoveFromMix(asioAudioSource);
             return false;
+        }
+
+        /// <summary>Whether two sources use a common output channel (a source with Play All Channels uses several consecutive channels).</summary>
+        public static bool SharesOutputChannel(AsioAudioSource a, AsioAudioSource b)
+        {
+            if (a == null || b == null || a.TargetOutputChannel <= 0 || b.TargetOutputChannel <= 0) return false;
+            return a.TargetOutputChannel < b.TargetOutputChannel + b.OutputChannelCount && b.TargetOutputChannel < a.TargetOutputChannel + a.OutputChannelCount;
         }
 
         /// <summary>Remove an ASIO Audio Source from the list of ASIO Audio Sources, returns true if removed, false otherwise.</summary>
@@ -629,6 +697,25 @@ namespace AsioAudioUnity
         {
             ForAllSourcesInSync((source, deferred) => source.Restart(deferred));
             TransportCommandIssued?.Invoke(AsioTransportCommand.Restart);
+        }
+
+        private readonly List<AsioAudioSource> _queuedPlays = new List<AsioAudioSource>();
+
+        /// <summary>
+        /// Plays (or resumes) the source at the end of the frame, on the same sample as the other sources queued during the same frame
+        /// (e.g. Timeline clips starting together). Seek the source first to choose where it starts. Doesn't raise <see cref="TransportCommandIssued"/>.
+        /// </summary>
+        public void PlayInSync(AsioAudioSource source)
+        {
+            if (source != null && !_queuedPlays.Contains(source)) _queuedPlays.Add(source);
+        }
+
+        private void LateUpdate()
+        {
+            if (_queuedPlays.Count == 0) return;
+            AsioAudioSource[] sources = _queuedPlays.Where(source => source && source.isActiveAndEnabled).ToArray();
+            _queuedPlays.Clear();
+            ForSourcesInSync(sources, (source, deferred) => source.Play(deferred));
         }
 
         /// <summary>

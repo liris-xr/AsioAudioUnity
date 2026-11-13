@@ -9,7 +9,7 @@ namespace AsioAudioUnity
     /// so a receiver that restarts gets it back.
     /// Obsolete: replaced by the <see cref="SpatController"/>.
     /// </summary>
-    [Obsolete("Replaced by the Spat Controller, which sends the positions of every ASIO Audio Source and of rooms from a single component. Use its Inspector button to replace this component.")]
+    [Obsolete("Replaced by the Spat Controller, which sends the positions of every ASIO Audio Source and of rooms from a single component. Use its Inspector button to replace this component. Will be removed in version 4.0.")]
     public abstract class ObjectPositionOsc : MonoBehaviour
     {
         [SerializeField] public OSC _osc;

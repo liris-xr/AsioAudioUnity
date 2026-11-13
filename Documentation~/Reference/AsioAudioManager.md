@@ -7,8 +7,9 @@ The ASIO Audio Manager connects to the ASIO driver and plays all the [ASIO Audio
 ## How it plays the sources
 
 - It keeps **one connection** to the driver, and continuously mixes all sources into it, each on its own output channel. Channels without a source are silent.
-- The driver runs at one sample rate. Each source mixes its file down to mono and resamples it on the fly: files can have any sample rate and bit depth, and nothing is converted or written to disk.
-- It checks that each source's output channel exists on the driver and is used by only one source.
+- The driver runs at one sample rate. Each source mixes its file down to mono (or keeps all its channels, with *Play All Channels*) and resamples it on the fly: files can have any sample rate and bit depth, and nothing is converted or written to disk.
+- It checks that each source's output channels exist on the driver and are used by only one source.
+- Without a usable ASIO driver, it plays through **Unity's audio output** instead, all channels mixed together (see [Fall Back To Unity Audio](/Documentation~/Reference/AsioAudioSettings.md#fall-back-to-unity-audio)).
 - Playing, pausing, stopping, seeking, or changing a volume, a loop or an output channel is instant, and doesn't interrupt the other sources. Only changing the driver, sample rate or sample format reconnects the driver (sources keep their state and position).
 
 ```mermaid
@@ -26,10 +27,13 @@ graph LR
 
 `PlayAll`, `PauseAll`, `StopAll` and `RestartAll` change all sources **on the same sample**, so stems that belong together stay in sync. They are also on the *Master* strip of the [ASIO Audio Mixer](/Documentation~/Reference/AsioAudioMixer.md), in the overlay, and over OSC ([AsioOscRemote](/Documentation~/Reference/AsioOscRemote.md)). After each of them, the static `TransportCommandIssued` event is raised: the [REAPER Controller](/Documentation~/Reference/ReaperController.md) uses it to mirror Unity's transport in REAPER.
 
+`PlayInSync(source)` plays a source at the end of the frame, on the same sample as the other sources queued during the same frame: the [Timeline tracks](/Documentation~/Reference/Timeline.md) use it so that clips starting together start on the same sample.
+
 ## Diagnostics
 
 - If the driver is connected but doesn't ask for audio after 2 seconds (e.g. ReaRoute while REAPER's audio device is closed), a warning explains what to check. `RenderedFrames` stays at 0 in that case.
 - If the driver stops because of an error in the audio callback, the error is logged.
+- With the Unity audio fallback, a warning says if Unity's audio isn't playing (disabled, or no Audio Listener).
 
 ## Script example
 
@@ -60,6 +64,8 @@ public class ShowControl : MonoBehaviour
 | `MasterVolume`, `MasterVolumeDecibels` | The master volume, linear (0 to 1) or in dB (from the settings). Applied live and smoothly. |
 | `MasterMeterLevel` | The level sent to the driver (peak of all channels, after the master volume), with a meter-like falloff (Read Only). |
 | `IsConnected` | Whether the ASIO driver is connected and playing (Read Only). |
+| `IsUsingUnityAudio` | Whether the sources play through Unity's audio output, because no ASIO driver could be used (Read Only). |
+| `OutputSampleRate` | The sample rate the sources are mixed at: the driver's, or Unity's with the fallback (Read Only). |
 | `RenderedFrames` | How many frames the driver has asked for since it was connected: 0 if it doesn't process audio (Read Only). |
 | `AsioDriverOutputChannelCount`, `AsioDriverInputChannelCount` | The driver's number of outputs (the highest valid output channel) and inputs (Read Only). |
 | `AsioDriverSampleFormat` | The sample format the driver works with, e.g. `24-bit integer` (Read Only, empty until connected). |
@@ -72,6 +78,8 @@ public class ShowControl : MonoBehaviour
 
 | **Method** | **Description** |
 |-|-|
+| `PlayInSync(source)` | Plays a source at the end of the frame, on the same sample as the other sources queued during the frame (doesn't raise `TransportCommandIssued`). |
+| `SharesOutputChannel(a, b)` | Static: whether two sources use a common output channel. |
 | `PlayAll`, `PauseAll`, `StopAll`, `RestartAll` | Transport of all sources, on the same sample. |
 | `SaveSnapshot(name)` | Saves the mix of the loaded scenes as a snapshot (a snapshot with the same name is replaced). |
 | `RecallSnapshot(name)`, `RecallSnapshot(index)` | Applies a snapshot (volume changes are smoothed while playing). Returns `false` if it doesn't exist. |
