@@ -141,6 +141,13 @@ namespace AsioAudioUnity
 
             EditorGUILayout.Space(4f);
             DrawStatus(manager, driverName.stringValue);
+            EditorGUILayout.BeginHorizontal();
+            GUILayout.FlexibleSpace();
+            if (GUILayout.Button(new GUIContent("Setup Check", "Check each link of the setup at a glance: driver, connection, sample rate, sources, REAPER, Spat Revolution."), EditorStyles.miniButton, GUILayout.Width(100f)))
+            {
+                AsioSetupCheckWindow.Open();
+            }
+            EditorGUILayout.EndHorizontal();
 
             EditorGUILayout.Space(6f);
             EditorGUILayout.LabelField("ASIO Driver", EditorStyles.boldLabel);
@@ -201,7 +208,7 @@ namespace AsioAudioUnity
             else if (manager.IsConnected)
             {
                 statusColor = AsioEditorUtility.PlayingColor;
-                statusText = "Connected  ·  " + manager.AsioDriverOutputChannelCount + " outputs  ·  " + manager.TargetSampleRate + " Hz  ·  " + manager.AsioAudioSources.Count + " source(s)";
+                statusText = "Connected  ·  " + manager.AsioDriverOutputChannelCount + " outputs  ·  " + manager.OutputSampleRate + " Hz  ·  " + manager.AsioAudioSources.Count + " source(s)";
             }
             else if (manager.IsUsingUnityAudio)
             {
@@ -300,7 +307,13 @@ namespace AsioAudioUnity
                 ? AsioEditorUtility.CommonSampleRates
                 : AsioEditorUtility.CommonSampleRates.Append(currentRate).OrderBy(rate => rate).ToArray();
             GUIContent[] labels = rates.Select(rate => new GUIContent(rate + " Hz")).ToArray();
-            EditorGUILayout.IntPopup(sampleRate, labels, rates, new GUIContent("Sample Rate", "The sample rate the ASIO driver runs at. It must be supported by the driver. Audio files are resampled to it."));
+            EditorGUILayout.IntPopup(sampleRate, labels, rates, new GUIContent("Sample Rate", "The sample rate the ASIO driver runs at. Audio files are resampled to it. "
+                + "With Match Driver, it is a preference: if the driver doesn't support it, the driver's own rate is used."));
+            SerializedProperty match = sampleRate.serializedObject.FindProperty("_matchDriverSampleRate");
+            EditorGUI.indentLevel++;
+            EditorGUILayout.PropertyField(match, new GUIContent("Match Driver", "If the driver doesn't support the Sample Rate, use the rate it runs at (e.g. ReaRoute only accepts REAPER's rate), "
+                + "so the rate doesn't have to be set in two places. The rate in use is shown in the status above."));
+            EditorGUI.indentLevel--;
         }
 
         // The driver's outputs and own sample format (set by the driver, not by Unity), live when connected, otherwise remembered from the last time

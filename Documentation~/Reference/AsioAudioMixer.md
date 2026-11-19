@@ -12,7 +12,7 @@ Two places control all the sources of the scene side by side: the **ASIO Audio M
 
 ### Toolbar
 
-The driver status (driver, sample rate, number of outputs), **Reconnect**, **Settings** (opens *Project Settings > ASIO Audio*), **Snapshots** (save the current mix, recall or update a snapshot) and **+ Source** (creates an ASIO Audio Source on the next free channel).
+The driver status (driver, sample rate, number of outputs), **Reconnect**, **Settings** (opens *Project Settings > ASIO Audio*), **Check** (opens the [Setup Check](/Documentation~/Reference/AsioAudioSettings.md#setup-check)), **Test Channels** (a beep on each source's output channels in turn, see [Test Channels](/Documentation~/Reference/AsioAudioSettings.md#test-channels)), **Snapshots** (save the current mix, recall or update a snapshot) and **+ Source** (creates an ASIO Audio Source on the next free channel).
 
 ### Master strip
 

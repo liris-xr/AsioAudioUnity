@@ -12,7 +12,7 @@ The first time, click **Create ASIO Audio Settings**. The settings are saved in 
 
 | **Section** | **Settings** |
 |-|-|
-| Status | In Play mode: the connection status, number of outputs and sources, **Reconnect** and **Driver Control Panel** (the driver's own settings: buffer size, clock…). In Edit mode: **Driver Control Panel** too (see below). |
+| Status | In Play mode: the connection status, number of outputs and sources, **Reconnect** and **Driver Control Panel** (the driver's own settings: buffer size, clock…). In Edit mode: **Driver Control Panel** too (see below). **Setup Check** opens the [Setup Check](#setup-check) window. |
 | ASIO Driver | **Driver**: one of the ASIO drivers installed on the machine (a driver set on another machine shows *(not installed)*). **Sample Rate**: must be supported by the driver (ReaRoute only accepts REAPER's); audio files are resampled to it. **Sample Format**: 32-bit float (recommended) or 16-bit integer. **Driver Outputs** and **Driver Format**: the driver's number of output channels and the sample format it actually works with (e.g. 24-bit integer), live when connected, otherwise remembered from the last time the driver was loaded. Changing the driver, rate or format in Play mode reconnects the driver; sources keep their state and position. **Fall Back To Unity Audio**: see below. |
 | Master | **Master Volume**, in dB, applied to all sources after their own volume, with the level sent to the driver in Play mode. |
 | Snapshots | Saved mixes: the master volume, and the volume, mute and solo of every source, **identified by output channel** (so a snapshot works in every scene). *Save Current Mix*, *Recall*, *Update*, rename and delete. |
@@ -21,6 +21,31 @@ The first time, click **Create ASIO Audio Settings**. The settings are saved in 
 | Output Channels | The sources of the open scene with their channel, status and file. Channel conflicts are shown, with **Fix**; **Open Mixer** opens the [ASIO Audio Mixer](/Documentation~/Reference/AsioAudioMixer.md). |
 
 Changes made at runtime (from the overlay, the mixer, code or OSC) are made to the settings asset: in the Editor, they are kept after Play mode, like any asset edited in Play mode.
+
+## Match Driver
+
+**Sample Rate** is the rate the driver runs at. With **Match Driver** (default: on), it is a preference: if the driver doesn't support it, Unity uses the rate the driver runs at, and logs it. ReaRoute only accepts REAPER's rate, so Unity follows REAPER: the rate only needs to be set there. The rate in use is shown in the status, the ASIO Audio Mixer, the overlay and the Setup Check. Off, a rate the driver doesn't support fails to connect, as before.
+
+## Setup Check
+
+*AsioAudioUnity > Setup Check* (also *Setup Check* in this page and *Check* in the ASIO Audio Mixer) shows the state of each link of the setup, refreshed by itself, with a fix button where possible, and a **?** button that opens the documentation about it:
+
+- **ASIO driver**: settings created, driver chosen and installed, sample rate; in Play mode, connected, the driver actually asking for audio (e.g. REAPER's audio device closed), or playing through Unity's audio (with an Audio Listener, and Unity's audio enabled).
+- **Sources** of the open scenes: channel conflicts (*Fix*), files missing.
+- **REAPER** (REAPER OSC plugin): the REAPER Controller's destination, missing script IDs or IDs that differ from those `RegisterScripts.lua` gave (*Fill from REAPER*), and with *Follow REAPER*, whether REAPER answers.
+- **Spat Revolution** (Spat OSC plugin): the Spat Controller's destination and what it tracks (*Send Now* to test), objects sharing a Spat number, objects with missing scripts (e.g. position components removed in 4.0).
+
+Plugins and projects can add their own checks with `AsioSetupChecks.Register(section, order, provider)` (an `AsioSetupCheck`'s `Help(page)` gives it a **?** button), and objects for [Show Setup](#show-setup) with `AsioSetupChecks.RegisterSceneObject(name, order, exists, create)`.
+
+## Test Channels
+
+**Test Channels**, in the Setup Check's and the ASIO Audio Mixer's toolbars, plays a short beep (1 kHz, -12 dBFS, half a second) on each ASIO Audio Source's output channels in turn, one source per second, in channel order. The window says which source is beeping: its REAPER track and its Spat Revolution source should show a level at the same time. **Stop Test** stops it.
+
+It works in Edit mode (through the project's ASIO driver, like the source preview) and in Play mode (through the ASIO Audio Manager, on top of the sources, at the master volume). With Unity's audio fallback, every channel is heard together, so the test can't tell them apart. From code: `AsioAudioManager.PlayTestTone(steps)`.
+
+## Show Setup
+
+*AsioAudioUnity > Show Setup* creates what a show needs and the open scene doesn't have yet: the ASIO Audio Settings, an ASIO Audio Source, a [REAPER Controller](/Documentation~/Reference/ReaperController.md) and a [Spat Controller](/Documentation~/Reference/SpatController.md) (with their default ports), then opens the Setup Check. Objects already there are kept, and one *Undo* removes everything it created.
 
 ## Driver Control Panel in Edit mode
 
@@ -49,6 +74,7 @@ Scenes made with version 2.x contain an `AsioAudioManager` component with the se
 | **Property** | **Description** |
 |-|-|
 | `AsioDriverName`, `TargetSampleRate`, `TargetBitsPerSample` | The driver, sample rate and sample format. |
+| `MatchDriverSampleRate` | Use the driver's own rate when it doesn't support `TargetSampleRate` (default: on). |
 | `MasterVolume` | The master volume (linear gain, 0 to 1). |
 | `Snapshots` | The saved snapshots (`AsioMixerSnapshot`). |
 | `FallBackToUnityAudio` | Play through Unity's audio output when no ASIO driver can be used (default: on). |

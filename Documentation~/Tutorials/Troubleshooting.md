@@ -2,6 +2,8 @@
 
 [Documentation home](/Documentation~/README.md)
 
+Start with **AsioAudioUnity > Setup Check**: it shows the state of each link (settings, driver, connection, sample rate, sources, REAPER, Spat Revolution), live in Play mode, with a fix button where possible, and a **?** button that opens the section below about it. Its **Test Channels** button checks the routing of each source.
+
 ## The sources show *Playing*, but nothing is heard
 
 **The Console warns that the driver "is connected but isn't asking for audio"**, and the sources' time stays at 0: the driver doesn't process audio.
@@ -37,6 +39,14 @@ With *Fall Back To Unity Audio* (on by default), the sources then play through U
 
 Each source needs its own output channel, between 1 and the driver's number of outputs. *Project Settings > ASIO Audio > Output Channels* lists the sources and can fix the conflicts.
 
+## A source is heard on the wrong track, or not in Spat Revolution
+
+Click **Test Channels** (Setup Check or ASIO Audio Mixer toolbar): each ASIO Audio Source beeps in turn on its output channels (one per second), and the window says which one.
+
+- **No REAPER track shows a level**: check the track's input (*ReaRoute* number = the source's output channel), that it is armed with input monitoring, and that REAPER's audio device is open. **Set Up REAPER Tracks** sets all of this.
+- **Another track shows a level**: the track's ReaRoute input doesn't match the source's output channel. Run **Set Up REAPER Tracks** again.
+- **The track shows a level, but not the Spat source**: check that the track's Spat Revolution Send plugin has *Local Audio Path* enabled, and which Spat source it feeds. With **Number Track Names**, the track's name starts with the number of the Spat source it should feed.
+
 ## The sources aren't in sync
 
 Sources started one by one with `Play` can start a few milliseconds apart. Use *Play All* (the *Master* strip of the ASIO Audio Mixer, or `AsioAudioManager.Instance.PlayAll()`): all sources start on the same sample.
@@ -44,8 +54,9 @@ Sources started one by one with `Play` can start a few milliseconds apart. Use *
 ## Spat Revolution doesn't move the sources
 
 - Spat Revolution needs an OSC input connection (*Preferences > OSC Main*) on the Spat Controller's port (8100 by default). Click **Send Positions Now** on the Spat Controller to test.
+- To check that Spat Revolution and Unity can talk at all, use **Listen To Spat** (see [Listening to Spat Revolution](/Documentation~/Reference/SpatController.md#listening-to-spat-revolution)): if Unity receives Spat's messages, the network and OSC are set up.
+- **A source moved in Spat Revolution jumps back**: Unity drives the positions, and sends them again at least every *Keep Alive Interval*. Tick **Follow Spat** (with *Listen To Spat*) to move the Unity object instead. If it moves mirrored left/right, tick **Invert Azimuth**.
 - Each source is sent as the Spat source numbered like its output channel: check the numbers in the *Sent to Spat* table.
-- If the Spat Controller warns about *Source Position OSC* components, positions are sent twice: remove them with its button.
 
 ## Unity doesn't follow REAPER
 
@@ -59,7 +70,16 @@ Sources started one by one with `Play` can start a few milliseconds apart. Use *
 - *Follow Transport* mirrors *Play All*, *Pause All*, *Stop All* and *Restart All*, not sources played one by one: add *SourcePlay* commands for those.
 - Tick **Log Messages** on the REAPER Controller to see what is sent.
 
+## Upgrading to version 4.0
+
+Version 4.0 removes the *Source Position OSC* and *Room Position OSC* components (obsolete since 3.0), replaced by the [Spat Controller](/Documentation~/Reference/SpatController.md). Scenes that still contain them show **missing scripts** (*The referenced script on this Behaviour is missing*), and the Setup Check lists those objects.
+
+- **To convert them automatically**, before upgrading: install version 3.2 (`https://github.com/liris-xr/AsioAudioUnity.git#v3.2.0`), open each scene, click **Replace with Spat Controller** in the components' Inspector, save the scenes, then upgrade to 4.0. Their numbers are kept: a room becomes one of the Spat Controller's *Other Objects*, and a source's number becomes its *Spat #* if it differs from its output channel.
+- **Or by hand**, in 4.0: remove the missing scripts (in their Inspector, or with *Select* in the Setup Check), add a Spat Controller (*GameObject > AsioAudioUnity > Spat Controller*), and add the rooms to its *Other Objects*. ASIO Audio Sources are tracked automatically, as the Spat source numbered like their output channel.
+
+Code that used the OSC Manager's `Closing` event must use the component's own `OnDestroy` instead.
+
 ## Upgrading from version 2.x
 
 - Scenes contain an `AsioAudioManager` component: open *Project Settings > ASIO Audio* and click **Migrate the Scene's ASIO Audio Manager**. Its settings move to the project settings, and the component is removed.
-- *Source Position OSC* / *Room Position OSC* components still work, but are obsolete: use **Replace with Spat Controller** in their Inspector.
+- Then follow [Upgrading to version 4.0](#upgrading-to-version-40) for the *Source Position OSC* / *Room Position OSC* components.

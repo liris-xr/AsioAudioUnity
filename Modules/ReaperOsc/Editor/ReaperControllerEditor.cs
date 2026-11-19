@@ -18,6 +18,8 @@ namespace AsioAudioUnity
         private SerializedProperty _followReaper;
         private SerializedProperty _listenPort;
         private SerializedProperty _playRegionScriptId;
+        private SerializedProperty _setupTracksScriptId;
+        private SerializedProperty _numberTrackNames;
         private SerializedProperty _commands;
         private SerializedProperty _addresses;
         private SerializedProperty _logMessages;
@@ -37,6 +39,8 @@ namespace AsioAudioUnity
             _followReaper = serializedObject.FindProperty("_followReaper");
             _listenPort = serializedObject.FindProperty("_listenPort");
             _playRegionScriptId = serializedObject.FindProperty("_playRegionScriptId");
+            _setupTracksScriptId = serializedObject.FindProperty("_setupTracksScriptId");
+            _numberTrackNames = serializedObject.FindProperty("_numberTrackNames");
             _commands = serializedObject.FindProperty("_commands");
             _addresses = serializedObject.FindProperty("_addresses");
             _logMessages = serializedObject.FindProperty("_logMessages");
@@ -101,12 +105,70 @@ namespace AsioAudioUnity
             EditorGUILayout.EndVertical();
         }
 
+        // When RegisterScripts.lua's file was last looked at, and whether it gave other IDs (checked once per second, not on every repaint).
+        private double _nextIdsCheck;
+        private bool _idsDiffer;
+
+        // Fills the empty script ID fields from RegisterScripts.lua's file, and notes whether the others differ from it.
+        private void CheckRegisteredScriptIds()
+        {
+            if (EditorApplication.timeSinceStartup < _nextIdsCheck) return;
+            _nextIdsCheck = EditorApplication.timeSinceStartup + 1.0;
+            if (!File.Exists(ReaperController.RegisteredScriptIdsPath))
+            {
+                _idsDiffer = false;
+                return;
+            }
+            if (string.IsNullOrWhiteSpace(_playRegionScriptId.stringValue) || string.IsNullOrWhiteSpace(_setupTracksScriptId.stringValue))
+            {
+                serializedObject.ApplyModifiedProperties();
+                Undo.RecordObject(Controller, "Fill Script IDs from REAPER");
+                if (Controller.FillScriptIdsFromReaper(true) > 0)
+                {
+                    EditorUtility.SetDirty(Controller);
+                    Debug.Log("REAPER Controller: script IDs filled in from " + ReaperController.RegisteredScriptIdsPath + " (written by RegisterScripts.lua).", Controller);
+                }
+                serializedObject.Update();
+            }
+            _idsDiffer = Controller.ScriptIdsDifferFromReaper();
+        }
+
         private void DrawScriptsCard()
         {
+            CheckRegisteredScriptIds();
             EditorGUILayout.BeginVertical(_cardStyle);
             GUILayout.Label("Lua Scripts", _titleStyle);
             EditorGUILayout.PropertyField(_playRegionScriptId, new GUIContent("Play Region Script ID",
                 "Command ID of the PlayRegion.lua script in REAPER (e.g. _RS7d3c...). Play Region commands run it with the region number, and it plays the region in loop. Empty: they go to the region and play from there, without looping."));
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.PropertyField(_setupTracksScriptId, new GUIContent("Set Up Tracks Script ID",
+                "Command ID of the SetupTracks.lua script in REAPER. Set Up REAPER Tracks runs it with the list of ASIO Audio Sources, and it creates or updates one track per source."));
+            using (new EditorGUI.DisabledScope(string.IsNullOrWhiteSpace(_setupTracksScriptId.stringValue)))
+            {
+                if (GUILayout.Button(new GUIContent("Set Up REAPER Tracks", "Create or update one REAPER track per ASIO Audio Source of the open scenes: named like the source, "
+                    + "on its ReaRoute input, armed with monitoring, with the Spat Revolution Send plugin. Run it again after adding or changing sources."), EditorStyles.miniButton, GUILayout.Width(140f)))
+                {
+                    serializedObject.ApplyModifiedProperties();
+                    ReaperController controller = (ReaperController)target;
+                    controller.SetUpReaperTracks(FindObjectsByType<AsioAudioSource>(FindObjectsInactive.Include, FindObjectsSortMode.None)
+                        .Where(source => source.TargetOutputChannel > 0)
+                        .Select(source => (source.TargetOutputChannel, AsioEditorGUI.GetOutputChannelCount(source), source.SpatNumber, source.name)));
+                }
+            }
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.PropertyField(_numberTrackNames, new GUIContent("Number Track Names",
+                "Set Up REAPER Tracks starts each track's name with the number of its Spat Revolution source (its output channel without a Spat Controller), e.g. \"3 · Violin\"."));
+
+            if (_idsDiffer)
+            {
+                EditorGUILayout.BeginHorizontal();
+                EditorGUILayout.HelpBox("RegisterScripts.lua gave other command IDs than these (REAPER reinstalled, or another computer?).", MessageType.Warning);
+                if (GUILayout.Button(new GUIContent("Fill from REAPER", "Use the command IDs written by RegisterScripts.lua (" + ReaperController.RegisteredScriptIdsPath + ")."), GUILayout.Width(110f), GUILayout.Height(38f)))
+                {
+                    FillFromReaper();
+                }
+                EditorGUILayout.EndHorizontal();
+            }
 
             EditorGUILayout.BeginHorizontal();
             if (GUILayout.Button(new GUIContent("Show Scripts", "Open the folder of the package's REAPER Lua scripts."), EditorStyles.miniButtonLeft))
@@ -114,14 +176,22 @@ namespace AsioAudioUnity
                 string folder = ScriptsFolder();
                 if (folder != null) EditorUtility.RevealInFinder(Directory.GetFiles(folder, "*.lua").FirstOrDefault() ?? folder);
             }
-            if (GUILayout.Button(new GUIContent("Install into REAPER", "Copy the scripts to REAPER's Scripts folder (%APPDATA%\\REAPER\\Scripts\\AsioAudioUnity)."), EditorStyles.miniButtonRight))
+            if (GUILayout.Button(new GUIContent("Install into REAPER", "Copy the scripts to REAPER's Scripts folder (%APPDATA%\\REAPER\\Scripts\\AsioAudioUnity)."), EditorStyles.miniButtonMid))
             {
                 InstallScripts();
+            }
+            using (new EditorGUI.DisabledScope(!File.Exists(ReaperController.RegisteredScriptIdsPath)))
+            {
+                if (GUILayout.Button(new GUIContent("Fill from REAPER", "Set the script IDs from the file RegisterScripts.lua writes (" + ReaperController.RegisteredScriptIdsPath + "). Empty fields are filled by themselves."), EditorStyles.miniButtonRight))
+                {
+                    FillFromReaper();
+                }
             }
             EditorGUILayout.EndHorizontal();
 
             if (_installMessage != null) EditorGUILayout.HelpBox(_installMessage, _installMessageType);
-            EditorGUILayout.LabelField("Then in REAPER: Actions > Show action list > New action > Load ReaScript..., load PlayRegion.lua, right-click it > Copy selected action command ID, and paste the ID here. Your own scripts work the same way, in Run Action (With Value) commands.",
+            EditorGUILayout.LabelField("Then in REAPER, once: Actions > Show action list > New action > Load ReaScript..., select RegisterScripts.lua, and click Run. It loads the other scripts, and the IDs above fill in by themselves. "
+                + "(By hand: load each script, right-click it > Copy selected action command ID, and paste it above.) Your own scripts work the same way, in Run Action (With Value) commands.",
                 EditorStyles.wordWrappedMiniLabel);
             EditorGUILayout.EndVertical();
         }
@@ -266,13 +336,24 @@ namespace AsioAudioUnity
                 Directory.CreateDirectory(destination);
                 string[] scripts = Directory.GetFiles(source, "*.lua");
                 foreach (string script in scripts) File.Copy(script, Path.Combine(destination, Path.GetFileName(script)), true);
-                SetInstallMessage(scripts.Length + " script(s) copied to " + destination + ".", MessageType.Info);
+                SetInstallMessage(scripts.Length + " script(s) copied to " + destination + ". Now run RegisterScripts.lua once in REAPER (see below).", MessageType.Info);
                 EditorUtility.RevealInFinder(Path.Combine(destination, Path.GetFileName(scripts.First())));
             }
             catch (Exception e)
             {
                 SetInstallMessage("Could not copy the scripts: " + e.Message, MessageType.Error);
             }
+        }
+
+        private void FillFromReaper()
+        {
+            serializedObject.ApplyModifiedProperties();
+            Undo.RecordObject(Controller, "Fill Script IDs from REAPER");
+            int changed = Controller.FillScriptIdsFromReaper();
+            EditorUtility.SetDirty(Controller);
+            serializedObject.Update();
+            _nextIdsCheck = 0;
+            SetInstallMessage(changed > 0 ? changed + " script ID(s) set from RegisterScripts.lua." : "The script IDs already match RegisterScripts.lua's.", MessageType.Info);
         }
 
         private void SetInstallMessage(string message, MessageType type)

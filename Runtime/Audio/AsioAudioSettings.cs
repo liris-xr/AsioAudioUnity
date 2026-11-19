@@ -33,6 +33,17 @@ namespace AsioAudioUnity
             set { if (_targetSampleRate != value) { _targetSampleRate = value; NotifyChanged(); } }
         }
 
+        [SerializeField] private bool _matchDriverSampleRate = true;
+        /// <summary>
+        /// When the driver doesn't support <see cref="TargetSampleRate"/>, use the rate it runs at instead (e.g. ReaRoute only accepts REAPER's rate),
+        /// so the sample rate doesn't have to be set in two places. Off: a rate the driver doesn't support fails to connect.
+        /// </summary>
+        public bool MatchDriverSampleRate
+        {
+            get { return _matchDriverSampleRate; }
+            set { if (_matchDriverSampleRate != value) { _matchDriverSampleRate = value; NotifyChanged(); } }
+        }
+
         [SerializeField] private BitsPerSample _targetBitsPerSample = BitsPerSample.Bits32;
         /// <summary>The sample format the mix is handed to NAudio in (it converts it to the driver's own format).</summary>
         public BitsPerSample TargetBitsPerSample

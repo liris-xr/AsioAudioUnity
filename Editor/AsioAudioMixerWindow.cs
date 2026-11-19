@@ -50,7 +50,7 @@ namespace AsioAudioUnity
         // Keep meters and positions live in Play mode.
         private void OnEditorUpdate()
         {
-            if (!EditorApplication.isPlaying) return;
+            if (!EditorApplication.isPlaying && !AsioChannelTest.IsRunning) return;
             if (EditorApplication.timeSinceStartup - _lastRepaintTime < PlayModeRepaintInterval) return;
             _lastRepaintTime = EditorApplication.timeSinceStartup;
             Repaint();
@@ -64,6 +64,7 @@ namespace AsioAudioUnity
             int outputChannelCount = AsioEditorUtility.GetKnownOutputChannelCount();
 
             DrawToolbar(settings, manager);
+            AsioChannelTest.DrawStatus();
 
             if (allSources.Length == 0)
             {
@@ -108,7 +109,7 @@ namespace AsioAudioUnity
             else if (manager.IsConnected)
             {
                 statusColor = AsioEditorUtility.PlayingColor;
-                statusText = manager.AsioDriverName + "  ·  " + manager.TargetSampleRate + " Hz  ·  " + manager.AsioDriverOutputChannelCount + " outputs";
+                statusText = manager.AsioDriverName + "  ·  " + manager.OutputSampleRate + " Hz  ·  " + manager.AsioDriverOutputChannelCount + " outputs";
             }
             else if (manager.IsUsingUnityAudio)
             {
@@ -128,6 +129,8 @@ namespace AsioAudioUnity
 
             if (manager != null && GUILayout.Button("Reconnect", EditorStyles.toolbarButton)) manager.Reconnect();
             if (GUILayout.Button(new GUIContent("Settings", "Project Settings > ASIO Audio"), EditorStyles.toolbarButton)) AsioEditorUtility.OpenSettings();
+            if (GUILayout.Button(new GUIContent("Check", "Setup Check: each link of the setup at a glance"), EditorStyles.toolbarButton)) AsioSetupCheckWindow.Open();
+            AsioChannelTest.DrawToolbarButton();
             if (EditorGUILayout.DropdownButton(new GUIContent("Snapshots", "Save and recall mixes: master volume, and volume / mute / solo of every source."), FocusType.Passive, EditorStyles.toolbarDropDown))
             {
                 ShowSnapshotMenu();

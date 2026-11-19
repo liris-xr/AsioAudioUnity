@@ -99,6 +99,27 @@ namespace AsioAudioUnity
             }
         }
 
+        /// <summary>
+        /// Gives the number of the Spat Revolution source an ASIO Audio Source is sent as (0: not sent). Set by the Spat OSC module, from its Spat Controller;
+        /// null without it. See <see cref="SpatNumber"/>.
+        /// </summary>
+        public static Func<AsioAudioSource, int> SpatNumberProvider { get; set; }
+
+        /// <summary>
+        /// The number of the Spat Revolution source this source is sent as, by a Spat Controller; its output channel without one.
+        /// Used to name REAPER tracks like their Spat source.
+        /// </summary>
+        public int SpatNumber
+        {
+            get
+            {
+                int number = 0;
+                try { number = SpatNumberProvider != null ? SpatNumberProvider(this) : 0; }
+                catch (Exception e) { Debug.LogException(e); }
+                return number > 0 ? number : TargetOutputChannel;
+            }
+        }
+
         // The manager this source plays through (AsioAudioManager.Instance, created automatically), once registered.
         private AsioAudioManager _manager;
 

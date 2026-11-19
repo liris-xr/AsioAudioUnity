@@ -118,6 +118,8 @@ public class PlayAsioSourceAndLoop : MonoBehaviour
 | `TargetOutputChannel` | The output channel, from 1 to the driver's number of outputs, unique among sources (the first one with `PlayAllChannels`). Can be changed while playing. |
 | `PlayAllChannels` | Plays every channel of the file on consecutive outputs, from `TargetOutputChannel`, instead of mixing it down to mono (default: off). |
 | `OutputChannelCount` | The number of output channels the source uses: 1, or the file's channel count with `PlayAllChannels` (Read Only). |
+| `SpatNumber` | The number of the Spat Revolution source it is sent as by a [Spat Controller](/Documentation~/Reference/SpatController.md), or its output channel without one (Read Only). The REAPER Controller numbers its track names with it. |
+| `AsioAudioSource.SpatNumberProvider` | Static. Gives `SpatNumber`: set by the Spat OSC plugin (0: the source isn't sent). |
 | `ReferencedAsioAudioManager` | The ASIO Audio Manager this source plays through, set when the source is enabled in Play mode (Read Only). |
 | `Volume` | The linear gain (0 to 1; 0.5 is -6 dB), applied live and smoothly. |
 | `VolumeDecibels` | The same volume in decibels (0 dB: the file's level; negative infinity: silence). |

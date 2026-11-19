@@ -3,8 +3,6 @@ using System.Linq;
 using UnityEditor;
 using UnityEngine;
 
-#pragma warning disable 0618 // Detects the obsolete per-object position senders, to remove them
-
 namespace AsioAudioUnity
 {
     [CustomEditor(typeof(SpatController))]
@@ -15,7 +13,7 @@ namespace AsioAudioUnity
 
         private SpatController Controller => (SpatController)target;
 
-        public override bool RequiresConstantRepaint() => EditorApplication.isPlaying; // live positions
+        public override bool RequiresConstantRepaint() => EditorApplication.isPlaying || Controller.IsListening; // live positions, received messages
 
         public override void OnInspectorGUI()
         {
@@ -63,12 +61,16 @@ namespace AsioAudioUnity
                 EditorGUILayout.PropertyField(serializedObject.FindProperty("_rotationThreshold"), new GUIContent("Rotation Threshold", "Smallest rotation, in degrees, that sends a new orientation."));
                 EditorGUI.indentLevel--;
             }
-            if (GUILayout.Button(new GUIContent("Send Positions Now", "Send the position of everything tracked to Spat Revolution now (also works in Edit mode)."), GUILayout.Height(24f)))
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("_sendNames"), new GUIContent("Send Names", "Name each Spat source like its Unity object: "
+                + "when Play mode starts, when a name changes, and with Send Positions Now."));
+            if (GUILayout.Button(new GUIContent("Send Positions Now", "Send the position (and name, with Send Names) of everything tracked to Spat Revolution now (also works in Edit mode)."), GUILayout.Height(24f)))
             {
                 serializedObject.ApplyModifiedProperties();
                 Controller.SendAllPositions();
             }
             EditorGUILayout.EndVertical();
+
+            DrawListeningCard();
 
             EditorGUILayout.BeginVertical(_cardStyle);
             _showAddresses = AsioEditorGUI.CardFoldout(_showAddresses, new GUIContent("OSC Addresses", "Spat Revolution's addresses: {0} is the source or room number."), _titleStyle);
@@ -79,11 +81,104 @@ namespace AsioAudioUnity
                 EditorGUILayout.PropertyField(addresses.FindPropertyRelative("RoomPosition"));
                 EditorGUILayout.PropertyField(addresses.FindPropertyRelative("SourceYaw"));
                 EditorGUILayout.PropertyField(addresses.FindPropertyRelative("SourcePitch"));
+                EditorGUILayout.PropertyField(addresses.FindPropertyRelative("SourceName"));
             }
             EditorGUILayout.PropertyField(serializedObject.FindProperty("_logMessages"));
             EditorGUILayout.EndVertical();
 
             serializedObject.ApplyModifiedProperties();
+        }
+
+        private const int MaxListedAddresses = 40;
+
+        // Listen To Spat: the port, how to set up Spat Revolution's OSC output, and what it has sent.
+        private void DrawListeningCard()
+        {
+            EditorGUILayout.BeginVertical(_cardStyle);
+            GUILayout.Label(new GUIContent("Listening", "Messages sent by Spat Revolution to Unity: to check that it answers, and to see what it sends."), _titleStyle);
+            SerializedProperty listen = serializedObject.FindProperty("_listenToSpat");
+            EditorGUILayout.PropertyField(listen, new GUIContent("Listen To Spat", "Receive the OSC messages Spat Revolution sends (in Play mode and in Edit mode), "
+                + "to check that it answers, see what it sends, and follow it (Follow Spat). Needs an OSC output connection in Spat Revolution."));
+            if (listen.boolValue)
+            {
+                SerializedProperty port = serializedObject.FindProperty("_listenPort");
+                EditorGUILayout.PropertyField(port, new GUIContent("Listen Port", "The port Spat Revolution sends to: the port of its OSC output connection."));
+                EditorGUILayout.PropertyField(serializedObject.FindProperty("_followSpat"), new GUIContent("Follow Spat",
+                    "A source or room moved in Spat Revolution moves in Unity too (objects whose position Unity sends), in Play mode and in Edit mode (with Undo). "
+                    + "While it is dragged in Spat, Unity doesn't send its position back. Echoes of Unity's own positions are ignored."));
+                EditorGUILayout.PropertyField(serializedObject.FindProperty("_invertAzimuth"), new GUIContent("Invert Azimuth",
+                    "Azimuth received from Spat Revolution positive to the left instead of the right. A warning says when Spat's echoes suggest it."));
+                EditorGUILayout.PropertyField(serializedObject.FindProperty("_logReceivedMessages"), new GUIContent("Log Received Messages",
+                    "Log the messages received in the Console: each address the first time, then at most once per second."));
+                if (port.intValue == serializedObject.FindProperty("_spatPort").intValue)
+                {
+                    EditorGUILayout.HelpBox("The listen port is Spat Revolution's own input port: choose another one.", MessageType.Warning);
+                }
+                EditorGUILayout.HelpBox("In Spat Revolution: Preferences > OSC Main: add an OSC output connection, with the IP address of this computer (127.0.0.1 if Spat runs here) and the port "
+                    + port.intValue + ". Then move a source in Spat Revolution's Room tab: what it sends is listed below.", MessageType.None);
+                DrawReceived();
+            }
+            EditorGUILayout.EndVertical();
+        }
+
+        private void DrawReceived()
+        {
+            SpatController controller = Controller;
+            if (!controller.IsListening)
+            {
+                if (!string.IsNullOrEmpty(controller.ListenError)) EditorGUILayout.HelpBox("Can't listen on port " + controller.ListenPort + ": " + controller.ListenError, MessageType.Warning);
+                else if (!controller.isActiveAndEnabled) EditorGUILayout.HelpBox("The Spat Controller is disabled.", MessageType.Warning);
+                return;
+            }
+            if (!controller.HasHeardFromSpat)
+            {
+                EditorGUILayout.LabelField("Listening on port " + controller.ListenPort + ": no message from Spat Revolution yet.", EditorStyles.miniLabel);
+                return;
+            }
+
+            EditorGUILayout.BeginHorizontal();
+            if (controller.AzimuthLooksInverted && !controller.InvertAzimuth)
+            {
+                EditorGUILayout.BeginHorizontal();
+                EditorGUILayout.HelpBox("Spat Revolution's positions only match Unity's with the azimuth inverted.", MessageType.Warning);
+                if (GUILayout.Button("Invert Azimuth", GUILayout.Width(100f), GUILayout.Height(38f)))
+                {
+                    Undo.RecordObject(controller, "Invert Azimuth");
+                    controller.InvertAzimuth = true;
+                    controller.ClearReceivedMessages();
+                    EditorUtility.SetDirty(controller);
+                }
+                EditorGUILayout.EndHorizontal();
+            }
+            EditorGUILayout.LabelField("Echoes of Unity's positions ignored: " + controller.EchoCount + "   Moves from Spat applied: " + controller.AppliedMoveCount
+                + (controller.FollowSpat ? "" : " (Follow Spat is off)"), EditorStyles.miniLabel);
+            EditorGUILayout.LabelField("Received " + controller.ReceivedMessageCount + " message(s), " + controller.ReceivedAddresses.Count + " address(es):", EditorStyles.miniBoldLabel);
+            if (GUILayout.Button(new GUIContent("Copy", "Copy the list of addresses, with their last values, to the clipboard."), EditorStyles.miniButtonLeft, GUILayout.Width(50f)))
+            {
+                EditorGUIUtility.systemCopyBuffer = controller.DescribeReceivedMessages();
+            }
+            if (GUILayout.Button(new GUIContent("Clear", "Forget the messages received so far."), EditorStyles.miniButtonRight, GUILayout.Width(50f)))
+            {
+                controller.ClearReceivedMessages();
+            }
+            EditorGUILayout.EndHorizontal();
+
+            float now = Time.unscaledTime;
+            int shown = 0;
+            foreach (SpatController.ReceivedAddress item in controller.ReceivedAddresses)
+            {
+                if (shown++ >= MaxListedAddresses)
+                {
+                    EditorGUILayout.LabelField("… and " + (controller.ReceivedAddresses.Count - MaxListedAddresses) + " more (Copy lists them all).", EditorStyles.miniLabel);
+                    break;
+                }
+                bool recent = now - item.LastTime < 0.5f;
+                EditorGUILayout.BeginHorizontal();
+                Rect dot = GUILayoutUtility.GetRect(10f, 16f, GUILayout.Width(10f));
+                AsioEditorGUI.StatusDot(dot, recent);
+                EditorGUILayout.SelectableLabel(item.Address + "   ×" + item.Count + "   " + item.Variants, EditorStyles.miniLabel, GUILayout.Height(16f));
+                EditorGUILayout.EndHorizontal();
+            }
         }
 
         // Other objects as a compact table (Unity's default list puts its foldout arrow outside the card): target, type, number, remove.
@@ -208,24 +303,6 @@ namespace AsioAudioUnity
                 }
                 string text = position.x.ToString("0.00", CultureInfo.InvariantCulture) + ",  " + position.y.ToString("0.00", CultureInfo.InvariantCulture) + ",  " + position.z.ToString("0.00", CultureInfo.InvariantCulture);
                 GUI.Label(new Rect(row.x + 86f + row.width * 0.4f, row.y, row.width * 0.6f - 90f, row.height), text, EditorStyles.miniLabel);
-            }
-
-            // Sources that also send their position with a Source Position OSC component (through the OSC Manager): sent twice.
-            if (trackAllSources)
-            {
-                ObjectPositionOsc[] duplicates = FindObjectsByType<ObjectPositionOsc>(FindObjectsInactive.Include, FindObjectsSortMode.None)
-                    .Where(component => component is SourcePositionOsc && component.GetComponent<AsioAudioSource>() != null).ToArray();
-                if (duplicates.Length > 0)
-                {
-                    EditorGUILayout.HelpBox(duplicates.Length + " ASIO Audio Source(s) also have a Source Position OSC component: their positions are sent twice (and to the OSC Manager's destination too).", MessageType.Warning);
-                    if (GUILayout.Button("Remove the Source Position OSC Components"))
-                    {
-                        int undoGroup = Undo.GetCurrentGroup();
-                        foreach (ObjectPositionOsc component in duplicates) Undo.DestroyObjectImmediate(component);
-                        Undo.CollapseUndoOperations(undoGroup);
-                        GUIUtility.ExitGUI();
-                    }
-                }
             }
             EditorGUILayout.EndVertical();
         }

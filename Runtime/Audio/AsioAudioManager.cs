@@ -221,6 +221,8 @@ namespace AsioAudioUnity
         public long RenderedFrames => _mixer?.RenderedFrames ?? 0;
 
         private float _connectedAt;
+        /// <summary>When the driver (or the Unity audio fallback) was connected, in Time.realtimeSinceStartup seconds.</summary>
+        internal float ConnectedAt => _connectedAt;
         private bool _notProcessingWarned;
 
         /// <summary>The ASIO Audio Sources playing through this manager.</summary>
@@ -249,6 +251,7 @@ namespace AsioAudioUnity
         // The configuration of the last connection attempt, to detect changes (Project Settings, overlay...).
         private string _attemptedDriverName;
         private int _attemptedSampleRate;
+        private bool _attemptedMatchDriverSampleRate;
         private BitsPerSample _attemptedBitsPerSample;
 
         // ---------- Lifecycle ----------
@@ -280,7 +283,7 @@ namespace AsioAudioUnity
 
         private void Update()
         {
-            if (_attemptedDriverName != AsioDriverName || _attemptedSampleRate != TargetSampleRate || _attemptedBitsPerSample != TargetBitsPerSample)
+            if (_attemptedDriverName != AsioDriverName || _attemptedSampleRate != TargetSampleRate || _attemptedMatchDriverSampleRate != (Settings != null && Settings.MatchDriverSampleRate) || _attemptedBitsPerSample != TargetBitsPerSample)
             {
                 Reconnect();
             }
@@ -431,6 +434,8 @@ namespace AsioAudioUnity
 
             _attemptedDriverName = AsioDriverName;
             _attemptedSampleRate = TargetSampleRate;
+            _attemptedMatchDriverSampleRate = Settings != null && Settings.MatchDriverSampleRate;
+            int sampleRate = TargetSampleRate;
             _attemptedBitsPerSample = TargetBitsPerSample;
 
             if (string.IsNullOrEmpty(AsioDriverName))
@@ -449,6 +454,12 @@ namespace AsioAudioUnity
             try
             {
                 asioOut = new AsioOut(AsioDriverName);
+                sampleRate = ChooseSampleRate(asioOut, TargetSampleRate, _attemptedMatchDriverSampleRate);
+                if (sampleRate != TargetSampleRate)
+                {
+                    Debug.Log("ASIO Audio Manager: the ASIO driver \"" + AsioDriverName + "\" doesn't support " + TargetSampleRate + " Hz: its own rate, " + sampleRate
+                        + " Hz, is used (Match Driver, in Project Settings > ASIO Audio).");
+                }
                 AsioDriverInputChannelCount = asioOut.DriverInputChannelCount;
                 AsioDriverOutputChannelCount = asioOut.DriverOutputChannelCount;
 
@@ -464,11 +475,11 @@ namespace AsioAudioUnity
                 }
 
                 // Use all the driver's outputs, so any source can target any channel without reconnecting.
-                AsioMixer mixer = new AsioMixer(TargetSampleRate, AsioDriverOutputChannelCount) { MasterVolume = MasterVolume };
+                AsioMixer mixer = new AsioMixer(sampleRate, AsioDriverOutputChannelCount) { MasterVolume = MasterVolume };
                 foreach (AsioAudioSource asioAudioSource in AsioAudioSources)
                 {
                     if (asioAudioSource == null || asioAudioSource.Voice == null) continue;
-                    asioAudioSource.Voice.SetOutputSampleRate(TargetSampleRate);
+                    asioAudioSource.Voice.SetOutputSampleRate(sampleRate);
                     mixer.AddVoice(asioAudioSource.Voice);
                 }
 
@@ -492,7 +503,7 @@ namespace AsioAudioUnity
                 AsioOutPlayer = asioOut;
                 _connectedAt = Time.realtimeSinceStartup;
                 _notProcessingWarned = false;
-                Debug.Log("ASIO Audio Manager: connected to \"" + AsioDriverName + "\" (" + AsioDriverOutputChannelCount + " outputs, " + TargetSampleRate + " Hz"
+                Debug.Log("ASIO Audio Manager: connected to \"" + AsioDriverName + "\" (" + AsioDriverOutputChannelCount + " outputs, " + sampleRate + " Hz"
                     + (string.IsNullOrEmpty(AsioDriverSampleFormat) ? "" : ", driver format: " + AsioDriverSampleFormat) + ").");
 
 #if UNITY_EDITOR
@@ -505,7 +516,7 @@ namespace AsioAudioUnity
             }
             catch (Exception e)
             {
-                ReportConnectionProblem("ASIO Audio Manager: could not start the ASIO driver \"" + AsioDriverName + "\" at " + TargetSampleRate + " Hz, " + (int)TargetBitsPerSample + " bits: " + e.GetBaseException().Message + ".");
+                ReportConnectionProblem("ASIO Audio Manager: could not start the ASIO driver \"" + AsioDriverName + "\" at " + sampleRate + " Hz, " + (int)TargetBitsPerSample + " bits: " + e.GetBaseException().Message + ".");
                 asioOut?.Dispose();
                 return false;
             }
@@ -535,6 +546,37 @@ namespace AsioAudioUnity
         }
 
         private static readonly FieldInfo AsioOutDriverField = typeof(AsioOut).GetField("driver", BindingFlags.Instance | BindingFlags.NonPublic);
+
+        private static readonly int[] CommonSampleRates = { 44100, 48000, 88200, 96000, 176400, 192000 };
+
+        /// <summary>
+        /// The sample rate to run a driver at: the preferred one if the driver supports it (or if <paramref name="matchDriver"/> is off);
+        /// otherwise the rate the driver currently runs at (e.g. REAPER's, for ReaRoute), or else the first common rate it supports.
+        /// </summary>
+        public static int ChooseSampleRate(AsioOut asioOut, int preferred, bool matchDriver)
+        {
+            if (!matchDriver || asioOut == null) return preferred;
+            try
+            {
+                if (asioOut.IsSampleRateSupported(preferred)) return preferred;
+                int current = GetDriverCurrentSampleRate(asioOut);
+                if (current > 0 && asioOut.IsSampleRateSupported(current)) return current;
+                foreach (int rate in CommonSampleRates) if (asioOut.IsSampleRateSupported(rate)) return rate;
+            }
+            catch (Exception) { }
+            return preferred;
+        }
+
+        // The rate the driver currently runs at (NAudio doesn't expose it publicly). 0 if it can't be read.
+        private static int GetDriverCurrentSampleRate(AsioOut asioOut)
+        {
+            try
+            {
+                AsioDriverExt driver = AsioOutDriverField?.GetValue(asioOut) as AsioDriverExt;
+                return driver != null ? (int)Math.Round(driver.Driver.GetSampleRate()) : 0;
+            }
+            catch (Exception) { return 0; }
+        }
 
         // The sample format of the driver's first output channel (NAudio doesn't expose it publicly). Null if it can't be read.
         internal static AsioSampleType? GetDriverOutputSampleType(AsioOut asioOut)
@@ -664,6 +706,30 @@ namespace AsioAudioUnity
         public bool DeleteSnapshot(string snapshotName)
         {
             return Snapshots.RemoveAll(other => other.Name == snapshotName) > 0;
+        }
+
+        // ---------- Test Channels ----------
+
+        /// <summary>
+        /// Plays a short beep on each step's output channels in turn (1-based channels, one step per second), on top of the sources:
+        /// to check where each channel arrives (REAPER track, Spat Revolution source). Replaces a test already playing.
+        /// Returns null if the manager isn't connected (with the Unity audio fallback, all channels are heard together).
+        /// </summary>
+        public AsioTestTone PlayTestTone(IEnumerable<IEnumerable<int>> steps)
+        {
+            if (_mixer == null) return null;
+            StopTestTone();
+            AsioTestTone tone = new AsioTestTone(_mixer.WaveFormat.SampleRate, steps);
+            _mixer.TestTone = tone;
+            return tone;
+        }
+
+        /// <summary>Stops the test beeps (see <see cref="PlayTestTone"/>).</summary>
+        public void StopTestTone()
+        {
+            if (_mixer == null || _mixer.TestTone == null) return;
+            _mixer.TestTone.Stop();
+            _mixer.TestTone = null;
         }
 
         // ---------- Transport of all sources ----------

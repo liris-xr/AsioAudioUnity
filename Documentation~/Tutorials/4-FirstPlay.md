@@ -11,7 +11,7 @@ The ASIO settings are **project settings**: they are used by every scene, and th
 1. Open *Edit > Project Settings > ASIO Audio* (or *AsioAudioUnity > Project Settings…*).
 2. The first time, click **Create ASIO Audio Settings**: the settings are saved in `Assets/Settings/ASIO Audio Settings.asset`, and included in builds.
 3. **Driver**: choose **ReaRoute ASIO (x64)**.
-4. **Sample Rate**: the same as REAPER's. ReaRoute only accepts the sample rate of REAPER: with another one, the connection fails with an error in the Console.
+4. **Sample Rate**: keep **Match Driver** ticked: if the driver doesn't support the rate set here, Unity uses the driver's own rate. ReaRoute only accepts REAPER's rate, so Unity follows REAPER, and the rate only needs to be set in REAPER.
 5. Optionally, click **Driver Control Panel**: this loads the driver, and shows its number of outputs (*Driver Outputs*: 16 for ReaRoute) and its format (*Driver Format*).
 
 Keep the *Sample Format* at 32-bit float. See [ASIO Audio Settings](/Documentation~/Reference/AsioAudioSettings.md) for every setting.
@@ -27,7 +27,9 @@ Keep the *Sample Format* at 32-bit float. See [ASIO Audio Settings](/Documentati
 
 <img src="/Documentation~/pictures/finalresult.png" alt="Unity, REAPER and Spat Revolution playing the demo scene" width="800"/>
 
-Nothing heard, or an error? See [Troubleshooting](/Documentation~/Tutorials/Troubleshooting.md).
+Nothing heard, or an error? Open **AsioAudioUnity > Setup Check** (or *Setup Check* in Project Settings): it shows each link of the chain, from the driver to REAPER and Spat Revolution, with what to fix (and **?** for the explanation). Its **Test Channels** button beeps each source in turn, to check that each one reaches its REAPER track and its Spat Revolution source.
+
+> **In your own scene**, *AsioAudioUnity > Show Setup* creates in one click what the demo scene has: an ASIO Audio Source, a REAPER Controller and a Spat Controller (only those missing), then opens the Setup Check. See also [Troubleshooting](/Documentation~/Tutorials/Troubleshooting.md).
 
 ## Look around
 

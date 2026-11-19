@@ -13,7 +13,7 @@ The REAPER Controller controls REAPER from Unity with OSC messages:
 
 REAPER needs an OSC control surface listening on the controller's port: *Options > Preferences > Control/OSC/web > Add > OSC*, local listen port **8000**, pattern config **Default**. No OSC Manager is needed in Unity.
 
-<img src="/Documentation~/pictures/reaper-controller.png" alt="The REAPER Controller Inspector with two commands" width="600"/>
+<img src="/Documentation~/pictures/reaper-controller.png" alt="The REAPER Controller Inspector, with the script IDs filled in by RegisterScripts.lua" width="600"/>
 
 ## Two-way sync
 
@@ -55,11 +55,15 @@ The addresses are those of REAPER's *Default* OSC pattern. If your control surfa
 
 ## Lua scripts
 
-The plugin comes with **PlayRegion.lua** (`Modules/ReaperOsc/Lua Scripts`), used by *Play Region* commands: it receives the region number from the OSC message, sets the time selection to the region, turns repeat on, and plays it.
+The plugin comes with three scripts (`Modules/ReaperOsc/Lua Scripts`):
+
+- **RegisterScripts.lua**, run once by hand: it loads the other scripts of its folder into REAPER's action list (`reaper.AddRemoveReaScript`), and writes their command IDs to `%APPDATA%\AsioAudioUnity\ScriptIds.txt` (`PlayRegion.lua=_RS…` lines). The REAPER Controller's Inspector fills its empty script ID fields from that file, and **Fill from REAPER** (Inspector, Setup Check) replaces IDs that differ. Running it again is harmless: loaded scripts keep their command ID.
+- **PlayRegion.lua**, used by *Play Region* commands: it receives the region number from the OSC message, sets the time selection to the region, turns repeat on, and plays it.
+- **SetupTracks.lua**, used by **Set Up REAPER Tracks**: it receives the list of ASIO Audio Sources (Unity writes it to `%APPDATA%\AsioAudioUnity\SetupTracks.txt`, since Unity and REAPER are on the same computer with ReaRoute, then runs the script) and creates or updates one track per source (named like it, after its Spat source number with **Number Track Names**, e.g. `3 · Violin`; on its ReaRoute input, a stereo track for a stereo source, armed with input monitoring and set not to record files, with the Spat Revolution Send plugin). Running it again updates the tracks it created (found by their output channel), without duplicating or deleting any. *Local Audio Path* is enabled through the plugin's *Audio Enable* parameter. If that parameter isn't found, set up one Send plugin by hand (*Local Audio Path* on), and save it as an FX chain named **AsioAudioUnity Spat Send** (*FX > Save chain…*, in REAPER's default *FXChains* folder): the script then adds that chain, with its settings, instead of the bare plugin. REAPER's console says which case applies.
 
 1. In the Inspector, click **Install into REAPER**: the scripts are copied to `%APPDATA%\REAPER\Scripts\AsioAudioUnity` (or **Show Scripts** to copy them yourself, e.g. for a portable REAPER).
-2. In REAPER: *Actions > Show action list > New action > Load ReaScript…*, and select `PlayRegion.lua`.
-3. Right-click it > *Copy selected action command ID*, and paste it in **Play Region Script ID**.
+2. In REAPER: *Actions > Show action list > New action > Load ReaScript…*, select `RegisterScripts.lua`, and click **Run**.
+3. Select the REAPER Controller: the script IDs fill in by themselves. (By hand: load each script, right-click it > *Copy selected action command ID*, and paste it.)
 
 Your own scripts work the same way, with *Run Action* or *Run Action With Value* commands. A script reads the value sent with it from its action context:
 
@@ -105,6 +109,10 @@ public class ReaperCues : MonoBehaviour
 | `IsListening`, `ListenError` | Whether REAPER's feedback is received, or why the port couldn't be opened (Read Only). |
 | `StopReaperOnQuit` | Stops REAPER when the application quits or Play mode ends (default: on). Commands triggered by sources stopping while quitting aren't sent. |
 | `PlayRegionScriptId` | The command ID of PlayRegion.lua in REAPER (e.g. `_RS7d3c…`). |
+| `SetupTracksScriptId` | The command ID of SetupTracks.lua in REAPER. |
+| `NumberTrackNames` | `SetUpReaperTracks` starts each track's name with the number of its Spat source (`AsioAudioSource.SpatNumber`), e.g. `3 · Violin` (default: on). |
+| `ReaperController.RegisteredScriptIdsPath` | Static. The file RegisterScripts.lua writes the command IDs to: `%APPDATA%\AsioAudioUnity\ScriptIds.txt`. |
+| `HasHeardFromReaper` | Whether REAPER has sent a message since Unity started listening (*Follow REAPER*, Read Only). |
 | `Commands` | The list of commands (`ReaperCommand`). |
 | `Addresses` | The OSC addresses REAPER answers to (`ReaperOscAddresses`). |
 | `LogMessages` | Logs every message sent. |
@@ -117,6 +125,8 @@ public class ReaperCues : MonoBehaviour
 | `GoToStart`, `GoToTime(seconds)` | Moves the edit cursor (and playback, if playing). |
 | `GoToMarker(number)`, `GoToRegion(number)` | Goes to a marker, or to the start of a region. |
 | `PlayRegion(number)` | Plays a region in loop (with PlayRegion.lua). |
+| `SetUpReaperTracks()` | Creates or updates one REAPER track per ASIO Audio Source of the loaded scenes (with SetupTracks.lua). Overloads take the list (first channel, channel count, Spat number, name), or without the number. |
+| `FillScriptIdsFromReaper(onlyEmpty)` | Sets the script IDs from RegisterScripts.lua's file (only the empty ones with `onlyEmpty`), and returns how many changed. `ScriptIdsDifferFromReaper()` tells whether they differ; `ReaperController.ReadRegisteredScriptIds()` reads the file. |
 | `RunAction(id)` | Runs an action or script, by numeric or named command ID. |
 | `RunActionWithValue(id, value)` | Runs an action or script with a value. |
 | `Trigger(name)`, `Trigger(index)` | Sends a command of the list. |

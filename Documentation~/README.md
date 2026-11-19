@@ -12,7 +12,7 @@ Step by step, from installation to a spatialised scene. Follow them in order the
 4. [First play in Unity](/Documentation~/Tutorials/4-FirstPlay.md): choose the driver, play the demo scene, and check each link
 5. [ASIO sources in your scene](/Documentation~/Tutorials/5-AddSources.md): create or convert sources, set them up, play them from scripts
 6. [Send positions to Spat Revolution](/Documentation~/Tutorials/6-SendPositionsToSpat.md): the Spat Controller
-7. [Control REAPER from Unity](/Documentation~/Tutorials/7-ControlReaper.md): follow Unity's transport, play regions, run actions
+7. [Control REAPER from Unity](/Documentation~/Tutorials/7-ControlReaper.md): follow Unity's transport, install the Lua scripts, play regions, create REAPER's tracks, run actions
 8. [Control Unity over OSC](/Documentation~/Tutorials/8-ControlUnityOverOsc.md): play, mix and recall snapshots from another application
 
 Something doesn't work? See [Troubleshooting](/Documentation~/Tutorials/Troubleshooting.md).
@@ -23,7 +23,7 @@ Every component, window and setting in detail.
 
 **Audio**
 
-- [ASIO Audio Settings](/Documentation~/Reference/AsioAudioSettings.md): *Project Settings > ASIO Audio*: driver, sample rate, master volume, snapshots, editor pause, overlay
+- [ASIO Audio Settings](/Documentation~/Reference/AsioAudioSettings.md): *Project Settings > ASIO Audio*: driver, sample rate, master volume, snapshots, editor pause, overlay; Setup Check, Test Channels, Show Setup
 - [AsioAudioSource](/Documentation~/Reference/AsioAudioSource.md): the component that plays a file on an output channel: Inspector, waveform, fades, smooth loop, API
 - [AsioAudioManager](/Documentation~/Reference/AsioAudioManager.md): plays all the sources (created automatically): transport in sync, snapshots, API
 - [ASIO Audio Mixer and in-game overlay](/Documentation~/Reference/AsioAudioMixer.md): control all the sources side by side
@@ -31,12 +31,11 @@ Every component, window and setting in detail.
 
 **Spat OSC plugin** (`Modules/SpatOsc`)
 
-- [SpatController](/Documentation~/Reference/SpatController.md): sends the positions (and orientations) of the sources and rooms to Spat Revolution
-- [Legacy position components](/Documentation~/Reference/LegacyPositionComponents.md): *SourcePositionOsc* and *RoomPositionOsc*, obsolete, to be removed in 4.0
+- [SpatController](/Documentation~/Reference/SpatController.md): sends the positions (and orientations) and names of the sources and rooms to Spat Revolution
 
 **REAPER OSC plugin** (`Modules/ReaperOsc`)
 
-- [ReaperController](/Documentation~/Reference/ReaperController.md): follows Unity's transport (and REAPER's, two-way), and sends commands to REAPER
+- [ReaperController](/Documentation~/Reference/ReaperController.md): follows Unity's transport (and REAPER's, two-way), sends commands to REAPER, and creates its tracks (Lua scripts)
 
 **OSC library** (`Runtime/Osc`)
 

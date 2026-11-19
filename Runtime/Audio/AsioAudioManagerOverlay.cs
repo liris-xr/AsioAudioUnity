@@ -109,7 +109,7 @@ namespace AsioAudioUnity
             GUILayout.EndHorizontal();
 
             string driverName = string.IsNullOrEmpty(_manager.AsioDriverName) ? "No driver set" : _manager.AsioDriverName;
-            string details = driverName + "  ·  " + _manager.TargetSampleRate + " Hz  ·  " + SampleFormatLabels[_manager.TargetBitsPerSample == BitsPerSample.Bits16 ? 0 : 1];
+            string details = driverName + "  ·  " + _manager.OutputSampleRate + " Hz  ·  " + SampleFormatLabels[_manager.TargetBitsPerSample == BitsPerSample.Bits16 ? 0 : 1];
             if (connected) details += "  ·  " + _manager.AsioDriverOutputChannelCount + " outputs";
             if (connected && !string.IsNullOrEmpty(_manager.AsioDriverSampleFormat)) details += "\nDriver format: " + _manager.AsioDriverSampleFormat;
             GUILayout.Label(details, _smallStyle);

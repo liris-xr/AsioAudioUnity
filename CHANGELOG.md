@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.0.0] - 2026-11-19
+
+### Added
+
+- **Match Driver** sample rate (*Project Settings > ASIO Audio*, `AsioAudioSettings.MatchDriverSampleRate`, on by default): when the driver doesn't support the chosen sample rate, its own rate is used (and logged), so with ReaRoute the rate only needs to be set in REAPER (`AsioAudioManager.ChooseSampleRate`). The status displays show the rate in use (`OutputSampleRate`). Also used by the Edit-mode preview.
+- **Setup Check** window (*AsioAudioUnity > Setup Check*, and buttons in Project Settings and the ASIO Audio Mixer): the state of each link of the setup at a glance, refreshed by itself, with fix buttons: settings, driver chosen and installed, connection, sample rate in use, the driver asking for audio, the Unity audio fallback's prerequisites, channel conflicts and missing files of the open scenes, the REAPER Controller (destination, script IDs, whether REAPER answers with Follow REAPER) and the Spat Controller (destination, what it tracks, shared Spat numbers, obsolete components). Each check has a **?** button to its documentation. Extensible with `AsioSetupChecks.Register` (and `AsioSetupCheck.Help`).
+- **Show Setup** (*AsioAudioUnity > Show Setup*): creates what the open scene is missing among the ASIO Audio Settings, an ASIO Audio Source, a REAPER Controller and a Spat Controller, in one Undo step, then opens the Setup Check (`AsioSetupChecks.RegisterSceneObject` for other objects).
+- **Spat source names**: *Send Names* on the Spat Controller (`SendNames`, on by default) names each Spat source like its Unity object, when Play mode starts, when it is renamed, and with *Send Positions Now* (`/source/{0}/name`, editable in *OSC Addresses*; `SendSourceNames`, `SendSourceName`).
+- **Set Up REAPER Tracks** (REAPER Controller, with the new **SetupTracks.lua** script): creates or updates one REAPER track per ASIO Audio Source, named like it, on its ReaRoute input (a stereo track for a stereo source), armed with input monitoring and set not to record files, with the Spat Revolution Send plugin and its *Local Audio Path* enabled (through the plugin's *Audio Enable* parameter, or from a saved "AsioAudioUnity Spat Send" FX chain). Running it again updates the tracks it created (`SetupTracksScriptId`, `SetUpReaperTracks`, `HasHeardFromReaper`).
+- **Test Channels** (Setup Check and ASIO Audio Mixer toolbars): a short beep on each ASIO Audio Source's output channels in turn, one source per second, with the name of the source beeping, to check that each one reaches its REAPER track and its Spat Revolution source. Works in Edit mode and in Play mode (`AsioAudioManager.PlayTestTone`, `StopTestTone`, `AsioTestTone`).
+- **RegisterScripts.lua**: run once in REAPER after *Install into REAPER*, it loads the other scripts into the action list and gives their command IDs to Unity, which fills the REAPER Controller's script ID fields by itself. **Fill from REAPER** (Inspector, Setup Check) updates IDs that differ, e.g. after reinstalling REAPER (`FillScriptIdsFromReaper`, `ReadRegisteredScriptIds`, `RegisteredScriptIdsPath`).
+- **Numbered REAPER track names**: Set Up REAPER Tracks starts each track's name with its Spat source number, e.g. "3 · Violin" (`NumberTrackNames`, on by default; `AsioAudioSource.SpatNumber`, given by the Spat Controller, or the output channel without one).
+- **Listen To Spat** (Spat Controller): receives the OSC messages Spat Revolution sends (with an OSC output connection in Spat Revolution), in Play mode. The Inspector lists each address with its count and last values (*Copy*, *Clear*), the Console logs them, and the Setup Check shows whether Spat Revolution answers (`ListenToSpat`, `ListenPort`, `LogReceivedMessages`, `HasHeardFromSpat`, `ReceivedAddresses`, `MessageReceived`). Works in Play mode and in Edit mode.
+- **Follow Spat** (Spat Controller, with *Listen To Spat*): a source or room moved in Spat Revolution moves in Unity too; while it is dragged in Spat, Unity doesn't send it back. In Edit mode, with Undo, to place sources by ear. Echoes of Unity's own positions are recognised and ignored, and an azimuth convention mismatch is detected (*Invert Azimuth*) (`FollowSpat`, `InvertAzimuth`, `FromSpatPosition`, `AedToSpatPosition`, `IsHeldBySpat`).
+
+### Removed
+
+- **Breaking:** the legacy position components `SourcePositionOsc`, `RoomPositionOsc` and `ObjectPositionOsc` (obsolete since 3.0), their Inspector (*Replace with Spat Controller*) and the Spat Controller's warning about them: use the Spat Controller. Scenes that still contain them show missing scripts; the Setup Check lists the objects with missing scripts. To convert them automatically, open the scenes with version 3.2 first and use *Replace with Spat Controller* (see *Upgrading to version 4.0* in Troubleshooting).
+- **Breaking:** the OSC Manager's `Closing` event, only used by those components.
+
 ## [3.2.0] - 2026-11-13
 
 ### Added

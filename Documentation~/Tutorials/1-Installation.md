@@ -18,7 +18,7 @@ Any other ASIO driver works too (an audio interface's driver, for example): REAP
 2. Click **+** (top left) > **Add package from git URL…**
 3. Paste `https://github.com/liris-xr/AsioAudioUnity.git` and click **Add**.
 
-The package appears under *Packages > Asio Audio Unity*. To install a given version, add its tag at the end of the URL, e.g. `https://github.com/liris-xr/AsioAudioUnity.git#v3.2.0`.
+The package appears under *Packages > Asio Audio Unity*. To install a given version, add its tag at the end of the URL, e.g. `https://github.com/liris-xr/AsioAudioUnity.git#v4.0.0`.
 
 ## Import the demo scene
 

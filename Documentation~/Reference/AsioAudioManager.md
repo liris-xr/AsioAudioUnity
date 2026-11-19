@@ -81,6 +81,7 @@ public class ShowControl : MonoBehaviour
 | `PlayInSync(source)` | Plays a source at the end of the frame, on the same sample as the other sources queued during the frame (doesn't raise `TransportCommandIssued`). |
 | `SharesOutputChannel(a, b)` | Static: whether two sources use a common output channel. |
 | `PlayAll`, `PauseAll`, `StopAll`, `RestartAll` | Transport of all sources, on the same sample. |
+| `PlayTestTone(steps)`, `StopTestTone()` | Plays a short beep on each step's output channels (1-based) in turn, one per second, on top of the sources ([Test Channels](/Documentation~/Reference/AsioAudioSettings.md#test-channels)). Returns the `AsioTestTone` (`CurrentStep`, `IsFinished`, `Stop`), or null if not connected. |
 | `SaveSnapshot(name)` | Saves the mix of the loaded scenes as a snapshot (a snapshot with the same name is replaced). |
 | `RecallSnapshot(name)`, `RecallSnapshot(index)` | Applies a snapshot (volume changes are smoothed while playing). Returns `false` if it doesn't exist. |
 | `DeleteSnapshot(name)` | Deletes a snapshot. |

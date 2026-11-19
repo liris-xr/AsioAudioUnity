@@ -36,17 +36,33 @@ In the **Commands** list, add a command, then choose:
 
 Click **Send** next to a command to test it. From a script or a UnityEvent, call `Trigger("command name")`.
 
-<img src="/Documentation~/pictures/reaper-controller.png" alt="The REAPER Controller Inspector with two commands" width="600"/>
+## Install the Lua scripts
+
+The package comes with Lua scripts for REAPER: **PlayRegion.lua** (plays a region in loop) and **SetupTracks.lua** (creates REAPER's tracks). Install them once:
+
+1. In the REAPER Controller's Inspector, click **Install into REAPER** (the scripts are copied to REAPER's scripts folder).
+2. In REAPER, *Actions > Show action list > New action > Load ReaScript…*, select `AsioAudioUnity/RegisterScripts.lua`, and click **Run**. It loads the other scripts into the action list and gives their command IDs to Unity.
+3. Select the REAPER Controller: **Play Region Script ID** and **Set Up Tracks Script ID** fill in by themselves.
+
+<img src="/Documentation~/pictures/reaper-controller.png" alt="The REAPER Controller Inspector, with the script IDs filled in by RegisterScripts.lua" width="600"/>
+
+If REAPER is reinstalled, or the project moves to another computer, run `RegisterScripts.lua` again: the Inspector and the Setup Check then offer **Fill from REAPER**. (By hand: load each script with *Load ReaScript…*, right-click it > **Copy selected action command ID**, and paste it in the controller.)
 
 ## Play regions in loop
 
-*Play Region* commands use **PlayRegion.lua**, which comes with the package:
+*Play Region* commands use **PlayRegion.lua** (see [Install the Lua scripts](#install-the-lua-scripts)). A *Play Region* command with region number 2 plays region 2 in loop.
 
-1. In the REAPER Controller's Inspector, click **Install into REAPER** (the script is copied to REAPER's scripts folder).
-2. In REAPER, *Actions > Show action list > New action > Load ReaScript…*, and select `AsioAudioUnity/PlayRegion.lua`.
-3. Right-click it in the list > **Copy selected action command ID**, and paste it in the controller's **Play Region Script ID**.
+## Create REAPER's tracks from Unity
 
-A *Play Region* command with region number 2 then plays region 2 in loop.
+**SetupTracks.lua**, installed with the other scripts, creates or updates one REAPER track per ASIO Audio Source:
+
+1. Check that **Set Up Tracks Script ID** is filled in (see [Install the Lua scripts](#install-the-lua-scripts)).
+2. Click **Set Up REAPER Tracks** (also in Edit mode). Each source gets a track named like it, after its Spat source number (e.g. `3 · Violin`, to match tracks and Spat sources at a glance; untick **Number Track Names** for the plain name), on its ReaRoute input (a stereo source gets a stereo track), armed with input monitoring and set not to record files, with the Spat Revolution Send plugin and its *Local Audio Path* enabled.
+3. Read REAPER's console (it opens with the script's summary). If it says the plugin's *Audio Enable* parameter wasn't found, enable it in one Send plugin, save that plugin as an FX chain named **AsioAudioUnity Spat Send** (*FX > Save chain…*), and click **Set Up REAPER Tracks** again: new tracks then get the plugin from that chain, already set up. Enable it by hand in the plugins that were added before.
+
+4. Click **Test Channels** (in the Setup Check or the ASIO Audio Mixer): each source beeps in turn, and the window says which one. Its REAPER track, and its Spat Revolution source, should show a level at the same time.
+
+Click **Set Up REAPER Tracks** again after adding or changing sources: it updates the tracks it created, without duplicating or deleting any.
 
 Commands can also be placed on a Timeline, as markers of a **REAPER Command track**: see [Timeline tracks](/Documentation~/Reference/Timeline.md#reaper-command-markers).
 

@@ -9,7 +9,7 @@ The **Spat Controller** sends the position of every ASIO Audio Source (and of ro
 1. *GameObject > AsioAudioUnity > Spat Controller* (or drag the `Spat Controller` prefab, in `Packages/Asio Audio Unity/Modules/SpatOsc/Runtime/Prefabs`).
 2. Check the **Address** (127.0.0.1 if Spat Revolution runs on this computer) and the **Port** (8100).
 3. Keep **Track All ASIO Sources** ticked: every ASIO Audio Source is sent as the Spat source numbered like its **output channel**, the REAPER track and Spat input its sound arrives on.
-4. Click **Send Positions Now**: the sources move in Spat Revolution's *Room* tab (this also works in Edit mode).
+4. Click **Send Positions Now**: the sources move in Spat Revolution's *Room* tab (this also works in Edit mode). With **Send Names** (on by default), they also take the names of their Unity objects.
 
 <img src="/Documentation~/pictures/spat-controller.png" alt="The Spat Controller Inspector" width="600"/>
 
@@ -33,4 +33,4 @@ If a source must be another Spat source than its output channel, change its **Sp
 
 All the settings are described in [SpatController](/Documentation~/Reference/SpatController.md).
 
-> **Scenes from before version 3.0** send positions with a *Source Position OSC* or *Room Position OSC* component on each object. Their Inspector has a **Replace with Spat Controller** button: see [Legacy position components](/Documentation~/Reference/LegacyPositionComponents.md).
+> **Scenes from before version 3.0** sent positions with a *Source Position OSC* or *Room Position OSC* component on each object. These components were removed in version 4.0: see [Upgrading to version 4.0](/Documentation~/Tutorials/Troubleshooting.md#upgrading-to-version-40).

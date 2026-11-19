@@ -25,7 +25,7 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1115578743995451901}
   serializedVersion: 2
-  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
@@ -47,14 +47,28 @@ MonoBehaviour:
   _spatAddress: 127.0.0.1
   _spatPort: 8100
   _trackAllSources: 1
-  _trackedObjects: []
+  _sourceMappings: []
+  _trackedObjects:
+  - Target: {fileID: 0}
+    Type: 1
+    Index: 1
   _origin: {fileID: 0}
   _positionScale: 1
   _maxSendRate: 60
   _keepAliveInterval: 1
   _movementThreshold: 0.001
   _resetPositionsOnQuit: 0
+  _sendOrientation: 0
+  _invertYaw: 0
+  _rotationThreshold: 0.5
+  _sendNames: 1
   _addresses:
     SourcePosition: /source/{0}/xyz
     RoomPosition: /room/{0}/xyz
+    SourceYaw: /source/{0}/yaw
+    SourcePitch: /source/{0}/pitch
+    SourceName: /source/{0}/name
   _logMessages: 0
+  _listenToSpat: 1
+  _listenPort: 9100
+  _logReceivedMessages: 1

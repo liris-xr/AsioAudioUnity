@@ -64,6 +64,7 @@ namespace AsioAudioUnity
             {
                 _asioOut = new AsioOut(settings.AsioDriverName);
                 AsioDriverControlPanel.RememberDriverInfo(_asioOut, settings.AsioDriverName);
+                int sampleRate = AsioAudioManager.ChooseSampleRate(_asioOut, settings.TargetSampleRate, settings.MatchDriverSampleRate);
                 int channelCount = _asioOut.DriverOutputChannelCount;
                 if (source.TargetOutputChannel < 1 || source.TargetOutputChannel > channelCount)
                 {
@@ -71,12 +72,12 @@ namespace AsioAudioUnity
                 }
 
                 _voice = new AsioSourceVoice { DownmixToMono = !source.PlayAllChannels, Loop = source.Loop, LoopCrossfadeSeconds = source.LoopCrossfadeDuration };
-                _voice.Load(path, settings.TargetSampleRate, false);
+                _voice.Load(path, sampleRate, false);
                 _settings = settings;
                 Source = source;
                 ApplySettings();
 
-                _mixer = new AsioMixer(settings.TargetSampleRate, channelCount) { MasterVolume = settings.MasterVolume };
+                _mixer = new AsioMixer(sampleRate, channelCount) { MasterVolume = settings.MasterVolume };
                 _mixer.AddVoice(_voice);
                 _asioOut.Init(_mixer.ToWaveProvider()); // 32-bit float: NAudio converts it to any driver format
                 _asioOut.Play();
@@ -93,6 +94,54 @@ namespace AsioAudioUnity
             }
         }
 
+        /// <summary>The test beeps playing in Edit mode (Test Channels), or null.</summary>
+        public static AsioTestTone TestTone { get; private set; }
+
+        /// <summary>Plays test beeps (see AsioTestTone) through the project's ASIO driver, in Edit mode. Stops any preview. Returns null if the driver can't be used (see LastError).</summary>
+        public static AsioTestTone StartTestTone(IEnumerable<IEnumerable<int>> steps)
+        {
+            Stop();
+            AsioDriverControlPanel.Release(); // A driver can only be loaded once
+            LastError = null;
+
+            AsioAudioSettings settings = AsioEditorUtility.Settings;
+            if (string.IsNullOrEmpty(settings.AsioDriverName))
+            {
+                LastError = "Can't test the channels: no ASIO driver is set (Project Settings > ASIO Audio).";
+                return null;
+            }
+
+            try
+            {
+                _asioOut = new AsioOut(settings.AsioDriverName);
+                AsioDriverControlPanel.RememberDriverInfo(_asioOut, settings.AsioDriverName);
+                int sampleRate = AsioAudioManager.ChooseSampleRate(_asioOut, settings.TargetSampleRate, settings.MatchDriverSampleRate);
+                _settings = settings;
+                TestTone = new AsioTestTone(sampleRate, steps);
+                _mixer = new AsioMixer(sampleRate, _asioOut.DriverOutputChannelCount) { MasterVolume = settings.MasterVolume, TestTone = TestTone };
+                _asioOut.Init(_mixer.ToWaveProvider());
+                _asioOut.Play();
+                EditorApplication.update += UpdateTestTone;
+                return TestTone;
+            }
+            catch (Exception e)
+            {
+                Stop();
+                LastError = "Can't test the channels: could not use the ASIO driver \"" + settings.AsioDriverName + "\": " + e.GetBaseException().Message;
+                return null;
+            }
+        }
+
+        private static void UpdateTestTone()
+        {
+            if (TestTone == null || TestTone.IsFinished || _mixer == null || _settings == null)
+            {
+                Stop();
+                return;
+            }
+            _mixer.MasterVolume = _settings.MasterVolume;
+        }
+
         public static void Seek(double seconds)
         {
             _voice?.Seek(seconds);
@@ -101,6 +150,9 @@ namespace AsioAudioUnity
         public static void Stop()
         {
             EditorApplication.update -= Update;
+            EditorApplication.update -= UpdateTestTone;
+            TestTone?.Stop();
+            TestTone = null;
             try
             {
                 _asioOut?.Stop();

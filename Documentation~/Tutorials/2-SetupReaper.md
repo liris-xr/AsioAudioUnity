@@ -26,6 +26,9 @@ Download REAPER [here](https://www.reaper.fm/download.php). In the installer, **
 
 ## One track per Unity channel
 
+> **Quicker, from Unity:** once the REAPER Controller is set up ([7. Control REAPER from Unity](/Documentation~/Tutorials/7-ControlReaper.md)), **Set Up REAPER Tracks** creates these tracks for you: one per ASIO Audio Source, named like it (after its Spat source number), on its ReaRoute input, armed, with the Spat Revolution Send plugin and its *Local Audio Path* (see [Create REAPER's tracks from Unity](/Documentation~/Tutorials/7-ControlReaper.md#create-reapers-tracks-from-unity)). The manual steps follow.
+
+
 1. Create 4 tracks (*Ctrl+T*), and arm them for recording (![record arm button](/Documentation~/pictures/reaperrecord.png)).
 2. On each track, click the record input (![record input](/Documentation~/pictures/reaperinput.png)) and choose **ReaRoute 1** to **ReaRoute 4**. If there are no ReaRoute inputs, REAPER was installed without the ReaRoute driver.
 

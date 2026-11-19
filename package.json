@@ -1,6 +1,6 @@
 {
   "name": "fr.liris.asioaudiounity",
-  "version": "3.2.0",
+  "version": "4.0.0",
   "displayName": "Asio Audio Unity",
   "description": "Plays Unity sounds through an ASIO driver, each sound on its own output channel, and sends their positions over OSC: with REAPER (ReaRoute) and Spat Revolution, this spatialises a Unity scene on any speaker layout. Includes the Spat OSC and REAPER OSC plugins. Windows only.",
   "unity": "6000.0",

@@ -9,6 +9,14 @@ namespace AsioAudioUnity
     public static class AsioEditorGUI
     {
         /// <summary>
+        /// The number of output channels a source uses: 1, or its file's channel count with Play All Channels (read from the file outside Play mode).
+        /// </summary>
+        public static int GetOutputChannelCount(AsioAudioSource source) => AsioEditorUtility.GetOutputChannelCount(source);
+
+        /// <summary>A status dot, green when active, grey otherwise (as in the ASIO Audio Mixer and the Setup Check).</summary>
+        public static void StatusDot(Rect rect, bool active) => AsioEditorUtility.DrawDot(rect, active ? AsioEditorUtility.PlayingColor : AsioEditorUtility.StoppedColor);
+
+        /// <summary>
         /// A card title that folds the card. The arrow sits inside the card, before the title, centered on it
         /// (EditorGUILayout.Foldout puts its arrow in the Inspector's indent area, outside the card's padding). Click anywhere on it to toggle.
         /// Returns the new expanded state.

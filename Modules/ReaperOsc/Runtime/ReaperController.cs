@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using UnityEngine;
 using UnityEngine.Playables;
@@ -82,6 +83,27 @@ namespace AsioAudioUnity
         {
             get { return _playRegionScriptId; }
             set { _playRegionScriptId = value; }
+        }
+
+        [SerializeField] private string _setupTracksScriptId = "";
+        /// <summary>
+        /// Command ID of the SetupTracks.lua script in REAPER (e.g. "_RS1a2b..."), used by <see cref="SetUpReaperTracks()"/>:
+        /// the script creates or updates one REAPER track per ASIO Audio Source.
+        /// </summary>
+        public string SetupTracksScriptId
+        {
+            get { return _setupTracksScriptId; }
+            set { _setupTracksScriptId = value; }
+        }
+
+        [SerializeField] private bool _numberTrackNames = true;
+        /// <summary>
+        /// SetUpReaperTracks starts each track's name with the number of its Spat Revolution source (its output channel without a Spat Controller), e.g. "3 · Violin".
+        /// </summary>
+        public bool NumberTrackNames
+        {
+            get { return _numberTrackNames; }
+            set { _numberTrackNames = value; }
         }
 
         [SerializeField] private List<ReaperCommand> _commands = new List<ReaperCommand>();
@@ -166,6 +188,9 @@ namespace AsioAudioUnity
         /// <summary>Why the listen port couldn't be opened, or null.</summary>
         public string ListenError => _receiver.LastError;
 
+        /// <summary>Whether REAPER has sent a message since Unity started listening (Follow REAPER, in Play mode).</summary>
+        public bool HasHeardFromReaper { get; private set; }
+
         private void Update()
         {
             if (!_followReaper || _quitting)
@@ -176,6 +201,7 @@ namespace AsioAudioUnity
             if (!_receiver.IsOpen || _receiver.Port != _listenPort)
             {
                 _reaperTransport = ReaperTransport.Unknown;
+                HasHeardFromReaper = false;
                 if (!_receiver.Open(_listenPort) && _receiver.LastError != _loggedListenError)
                 {
                     _loggedListenError = _receiver.LastError;
@@ -191,6 +217,7 @@ namespace AsioAudioUnity
         // afterwards, each change is applied to Unity's sources, unless Unity asked for it (then REAPER is only confirming it).
         private void OnReaperMessage(OscMessage message)
         {
+            HasHeardFromReaper = true;
             if (_logMessages) Debug.Log("REAPER Controller: received " + message, this);
             if (message.values.Count == 0 || !IsOn(message.values[0])) return;
 
@@ -386,6 +413,133 @@ namespace AsioAudioUnity
 
         /// <summary>Moves the edit cursor to the start of a region, by its number (as shown in REAPER).</summary>
         public void GoToRegion(int regionNumber) { Send(_addresses.Region, regionNumber); }
+
+        /// <summary>
+        /// Creates or updates one REAPER track per ASIO Audio Source of the loaded scenes, with SetupTracks.lua (see <see cref="SetupTracksScriptId"/>):
+        /// named like the source (after its Spat number, with <see cref="NumberTrackNames"/>), on its ReaRoute input, armed with monitoring,
+        /// with the Spat Revolution Send plugin. Works in Edit mode too.
+        /// </summary>
+        public void SetUpReaperTracks()
+        {
+            SetUpReaperTracks(FindObjectsByType<AsioAudioSource>(FindObjectsInactive.Include, FindObjectsSortMode.None)
+                .Where(source => source.TargetOutputChannel > 0)
+                .Select(source => (source.TargetOutputChannel, source.OutputChannelCount, source.SpatNumber, source.name)));
+        }
+
+        /// <summary>Creates or updates REAPER tracks for these outputs (first channel, channel count, name), with SetupTracks.lua. Their names aren't numbered.</summary>
+        public void SetUpReaperTracks(IEnumerable<(int channel, int channelCount, string name)> tracks)
+        {
+            SetUpReaperTracks(tracks.Select(track => (track.channel, track.channelCount, 0, track.name)));
+        }
+
+        /// <summary>
+        /// Creates or updates REAPER tracks for these outputs (first channel, channel count, Spat number, name), with SetupTracks.lua.
+        /// With <see cref="NumberTrackNames"/>, a track's name starts with its number (0: not numbered).
+        /// </summary>
+        public void SetUpReaperTracks(IEnumerable<(int channel, int channelCount, int number, string name)> tracks)
+        {
+            if (string.IsNullOrWhiteSpace(_setupTracksScriptId))
+            {
+                Debug.LogWarning("REAPER Controller: set the Set Up Tracks Script ID first (install SetupTracks.lua in REAPER, and paste its command ID).", this);
+                return;
+            }
+            // "channel,count,number,name|..." (the script reads the value up to the first ']'; names can't contain the separators)
+            string list = string.Join("|", tracks.OrderBy(track => track.channel)
+                .Select(track => track.channel + "," + Math.Max(1, track.channelCount) + "," + (_numberTrackNames ? Math.Max(0, track.number) : 0) + "," + Sanitize(track.name)));
+            if (list.Length == 0)
+            {
+                Debug.LogWarning("REAPER Controller: no ASIO Audio Source with an output channel: no track to set up.", this);
+                return;
+            }
+            // Long OSC values don't reach REAPER's scripts: the list goes through a file (Unity and REAPER are on the same computer with ReaRoute),
+            // and the OSC message only runs the script.
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(SetupTracksListPath));
+                File.WriteAllText(SetupTracksListPath, DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture) + "\n" + list,
+                    new System.Text.UTF8Encoding(false));
+                RunActionWithValue(_setupTracksScriptId, "file");
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning("REAPER Controller: couldn't write " + SetupTracksListPath + " (" + e.Message + "): the list is sent in the OSC message instead.", this);
+                RunActionWithValue(_setupTracksScriptId, list);
+            }
+        }
+
+        /// <summary>The file SetUpReaperTracks writes the track list to, read by SetupTracks.lua: %APPDATA%\AsioAudioUnity\SetupTracks.txt.</summary>
+        public static string SetupTracksListPath =>
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "AsioAudioUnity", "SetupTracks.txt");
+
+        /// <summary>
+        /// The file RegisterScripts.lua writes the command IDs of the scripts it loaded in REAPER to ("PlayRegion.lua=_RS..." lines):
+        /// %APPDATA%\AsioAudioUnity\ScriptIds.txt. See <see cref="FillScriptIdsFromReaper"/>.
+        /// </summary>
+        public static string RegisteredScriptIdsPath =>
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "AsioAudioUnity", "ScriptIds.txt");
+
+        /// <summary>The command IDs written by RegisterScripts.lua, by script file name ("PlayRegion.lua"); empty if it hasn't run.</summary>
+        public static Dictionary<string, string> ReadRegisteredScriptIds()
+        {
+            Dictionary<string, string> ids = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                if (!File.Exists(RegisteredScriptIdsPath)) return ids;
+                foreach (string line in File.ReadAllLines(RegisteredScriptIdsPath))
+                {
+                    int separator = line.IndexOf('=');
+                    if (separator <= 0) continue;
+                    string id = line.Substring(separator + 1).Trim();
+                    if (id.Length > 0) ids[line.Substring(0, separator).Trim()] = id;
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning("REAPER Controller: couldn't read " + RegisteredScriptIdsPath + ": " + e.Message);
+            }
+            return ids;
+        }
+
+        /// <summary>The script file name of <see cref="PlayRegionScriptId"/>, as RegisterScripts.lua writes it.</summary>
+        public const string PlayRegionScriptFile = "PlayRegion.lua";
+        /// <summary>The script file name of <see cref="SetupTracksScriptId"/>, as RegisterScripts.lua writes it.</summary>
+        public const string SetupTracksScriptFile = "SetupTracks.lua";
+
+        /// <summary>
+        /// Sets PlayRegionScriptId and SetupTracksScriptId from the IDs written by RegisterScripts.lua (only the empty ones with <paramref name="onlyEmpty"/>).
+        /// Returns how many changed.
+        /// </summary>
+        public int FillScriptIdsFromReaper(bool onlyEmpty = false)
+        {
+            Dictionary<string, string> ids = ReadRegisteredScriptIds();
+            int changed = 0;
+            if (ids.TryGetValue(PlayRegionScriptFile, out string playRegion) && playRegion != _playRegionScriptId && (!onlyEmpty || string.IsNullOrWhiteSpace(_playRegionScriptId)))
+            {
+                _playRegionScriptId = playRegion;
+                changed++;
+            }
+            if (ids.TryGetValue(SetupTracksScriptFile, out string setupTracks) && setupTracks != _setupTracksScriptId && (!onlyEmpty || string.IsNullOrWhiteSpace(_setupTracksScriptId)))
+            {
+                _setupTracksScriptId = setupTracks;
+                changed++;
+            }
+            return changed;
+        }
+
+        /// <summary>Whether RegisterScripts.lua gave other command IDs than this controller's (or ones it doesn't have yet).</summary>
+        public bool ScriptIdsDifferFromReaper()
+        {
+            Dictionary<string, string> ids = ReadRegisteredScriptIds();
+            return (ids.TryGetValue(PlayRegionScriptFile, out string playRegion) && playRegion != _playRegionScriptId)
+                || (ids.TryGetValue(SetupTracksScriptFile, out string setupTracks) && setupTracks != _setupTracksScriptId);
+        }
+
+        private static string Sanitize(string name)
+        {
+            char[] chars = (name ?? "").ToCharArray();
+            for (int i = 0; i < chars.Length; i++) if (chars[i] == '|' || chars[i] == ',' || chars[i] == ']' || chars[i] < ' ') chars[i] = ' ';
+            return new string(chars).Trim();
+        }
 
         /// <summary>
         /// Plays a region in loop, by its number, with the PlayRegion.lua script (PlayRegionScriptId): one OSC message runs the script,

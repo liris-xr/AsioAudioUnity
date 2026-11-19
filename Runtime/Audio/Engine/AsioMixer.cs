@@ -49,6 +49,14 @@ namespace AsioAudioUnity
             }
         }
 
+        private volatile AsioTestTone _testTone;
+        /// <summary>A test beep mixed on top of the sources (Test Channels), or null.</summary>
+        public AsioTestTone TestTone
+        {
+            get => _testTone;
+            set => _testTone = value;
+        }
+
         /// <summary>Master volume (linear gain, 0 to 1) applied to all channels. Changes are ramped over one buffer.</summary>
         public float MasterVolume
         {
@@ -105,6 +113,7 @@ namespace AsioAudioUnity
             {
                 voices[i].MixInto(buffer, offset, frames, channelCount);
             }
+            _testTone?.MixInto(buffer, offset, frames, channelCount);
 
             // Master volume, ramped from the previous value over the buffer, and master peak
             float target = _masterVolume;

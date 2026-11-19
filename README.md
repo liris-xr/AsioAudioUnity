@@ -23,8 +23,9 @@ See [How it works](/Documentation~/Tutorials/1-Installation.md#how-it-works) for
 - **Mixing**: the ASIO Audio Mixer window, an in-game overlay (also in builds), dB faders and meters, and mix snapshots.
 - **Timeline**: ASIO Audio tracks to lay out cues, and REAPER Command markers.
 - **Works without ASIO**: on a computer without the show's driver, the sources play through Unity's audio, so a project can be worked on anywhere.
-- **Spat OSC plugin**: the Spat Controller sends the positions (and optionally orientations) of every source and room to Spat Revolution.
-- **REAPER OSC plugin**: the REAPER Controller follows Unity's transport (and Unity can follow REAPER's), plays regions, and runs actions and Lua scripts on Unity events.
+- **Setup tools**: *Show Setup* creates what a scene needs in one click, the *Setup Check* window shows each link of the chain from the driver to Spat Revolution (with fixes and links to the docs), and *Test Channels* beeps each source in turn to check its routing.
+- **Spat OSC plugin**: the Spat Controller sends the positions (and optionally orientations) and names of every source and room to Spat Revolution.
+- **REAPER OSC plugin**: the REAPER Controller follows Unity's transport (and Unity can follow REAPER's), plays regions, runs actions and Lua scripts on Unity events, and creates REAPER's tracks (ReaRoute input, Spat Revolution Send plugin) from the scene's sources.
 - **OSC remote**: control playback, volumes and snapshots from another application (TouchOSC, REAPER, Max...).
 
 Windows only (ASIO). Tested with Unity 6.3 LTS.
