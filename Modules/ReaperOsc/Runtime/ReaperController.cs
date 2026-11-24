@@ -417,7 +417,7 @@ namespace AsioAudioUnity
         /// <summary>
         /// Creates or updates one REAPER track per ASIO Audio Source of the loaded scenes, with SetupTracks.lua (see <see cref="SetupTracksScriptId"/>):
         /// named like the source (after its Spat number, with <see cref="NumberTrackNames"/>), on its ReaRoute input, armed with monitoring,
-        /// with the Spat Revolution Send plugin. Works in Edit mode too.
+        /// without a master send, with the Spat Revolution Send plugin. Works in Edit mode too.
         /// </summary>
         public void SetUpReaperTracks()
         {

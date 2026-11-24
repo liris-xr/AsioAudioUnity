@@ -45,6 +45,17 @@ namespace AsioAudioUnity
                     + " (Preferences > Control/OSC/web). Follow Transport: " + (controller.FollowTransport ? "on." : "off."), "Select", select)
                     .Help("Tutorials/7-ControlReaper.md#let-reaper-receive-osc");
 
+                List<string> outdated = ReaperScriptInstaller.OutdatedScripts();
+                if (outdated.Count > 0)
+                {
+                    yield return new AsioSetupCheck("Scripts installed in REAPER are outdated", AsioCheckStatus.Warning,
+                        "REAPER runs its installed copies, which differ from the package's: " + string.Join(", ", outdated) + ". Updating keeps the command IDs.", "Update", () =>
+                        {
+                            try { ReaperScriptInstaller.Install(); }
+                            catch (System.Exception e) { Debug.LogError("AsioAudioUnity: could not update the scripts installed in REAPER: " + e.Message); }
+                        }).Help(ScriptsHelp);
+                }
+
                 bool registered = System.IO.File.Exists(ReaperController.RegisteredScriptIdsPath);
                 if (registered && controller.ScriptIdsDifferFromReaper())
                 {

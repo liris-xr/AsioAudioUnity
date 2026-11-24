@@ -108,12 +108,14 @@ namespace AsioAudioUnity
         // When RegisterScripts.lua's file was last looked at, and whether it gave other IDs (checked once per second, not on every repaint).
         private double _nextIdsCheck;
         private bool _idsDiffer;
+        private System.Collections.Generic.List<string> _outdatedScripts = new System.Collections.Generic.List<string>();
 
         // Fills the empty script ID fields from RegisterScripts.lua's file, and notes whether the others differ from it.
         private void CheckRegisteredScriptIds()
         {
             if (EditorApplication.timeSinceStartup < _nextIdsCheck) return;
             _nextIdsCheck = EditorApplication.timeSinceStartup + 1.0;
+            _outdatedScripts = ReaperScriptInstaller.OutdatedScripts();
             if (!File.Exists(ReaperController.RegisteredScriptIdsPath))
             {
                 _idsDiffer = false;
@@ -146,9 +148,10 @@ namespace AsioAudioUnity
             using (new EditorGUI.DisabledScope(string.IsNullOrWhiteSpace(_setupTracksScriptId.stringValue)))
             {
                 if (GUILayout.Button(new GUIContent("Set Up REAPER Tracks", "Create or update one REAPER track per ASIO Audio Source of the open scenes: named like the source, "
-                    + "on its ReaRoute input, armed with monitoring, with the Spat Revolution Send plugin. Run it again after adding or changing sources."), EditorStyles.miniButton, GUILayout.Width(140f)))
+                    + "on its ReaRoute input, armed with monitoring, without a master send, with the Spat Revolution Send plugin. Run it again after adding or changing sources."), EditorStyles.miniButton, GUILayout.Width(140f)))
                 {
                     serializedObject.ApplyModifiedProperties();
+                    UpdateOutdatedScripts(); // REAPER runs its installed copy of SetupTracks.lua
                     ReaperController controller = (ReaperController)target;
                     controller.SetUpReaperTracks(FindObjectsByType<AsioAudioSource>(FindObjectsInactive.Include, FindObjectsSortMode.None)
                         .Where(source => source.TargetOutputChannel > 0)
@@ -170,10 +173,21 @@ namespace AsioAudioUnity
                 EditorGUILayout.EndHorizontal();
             }
 
+            if (_outdatedScripts.Count > 0)
+            {
+                EditorGUILayout.BeginHorizontal();
+                EditorGUILayout.HelpBox("The scripts installed in REAPER are older than the package's (" + string.Join(", ", _outdatedScripts) + "): REAPER runs the installed ones.", MessageType.Warning);
+                if (GUILayout.Button(new GUIContent("Update", "Copy the package's scripts to " + ReaperScriptInstaller.InstalledFolder + ". The command IDs stay the same."), GUILayout.Width(110f), GUILayout.Height(38f)))
+                {
+                    UpdateOutdatedScripts();
+                }
+                EditorGUILayout.EndHorizontal();
+            }
+
             EditorGUILayout.BeginHorizontal();
             if (GUILayout.Button(new GUIContent("Show Scripts", "Open the folder of the package's REAPER Lua scripts."), EditorStyles.miniButtonLeft))
             {
-                string folder = ScriptsFolder();
+                string folder = ReaperScriptInstaller.PackageFolder;
                 if (folder != null) EditorUtility.RevealInFinder(Directory.GetFiles(folder, "*.lua").FirstOrDefault() ?? folder);
             }
             if (GUILayout.Button(new GUIContent("Install into REAPER", "Copy the scripts to REAPER's Scripts folder (%APPDATA%\\REAPER\\Scripts\\AsioAudioUnity)."), EditorStyles.miniButtonMid))
@@ -308,40 +322,37 @@ namespace AsioAudioUnity
 
         // ---------- Lua scripts ----------
 
-        private static string ScriptsFolder()
-        {
-            UnityEditor.PackageManager.PackageInfo package = UnityEditor.PackageManager.PackageInfo.FindForAssembly(typeof(ReaperController).Assembly);
-            string folder = package != null ? Path.Combine(package.resolvedPath, "Modules", "ReaperOsc", "Lua Scripts") : null;
-            return folder != null && Directory.Exists(folder) ? folder : null;
-        }
-
         private void InstallScripts()
         {
-            string source = ScriptsFolder();
-            string reaperFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "REAPER");
-            if (source == null)
-            {
-                SetInstallMessage("The package's Lua scripts folder was not found.", MessageType.Error);
-                return;
-            }
-            if (!Directory.Exists(reaperFolder))
-            {
-                SetInstallMessage("REAPER's resource folder was not found (" + reaperFolder + "). For a portable REAPER, copy the scripts from \"Show Scripts\" to its Scripts folder.", MessageType.Warning);
-                return;
-            }
-
             try
             {
-                string destination = Path.Combine(reaperFolder, "Scripts", "AsioAudioUnity");
-                Directory.CreateDirectory(destination);
-                string[] scripts = Directory.GetFiles(source, "*.lua");
-                foreach (string script in scripts) File.Copy(script, Path.Combine(destination, Path.GetFileName(script)), true);
-                SetInstallMessage(scripts.Length + " script(s) copied to " + destination + ". Now run RegisterScripts.lua once in REAPER (see below).", MessageType.Info);
-                EditorUtility.RevealInFinder(Path.Combine(destination, Path.GetFileName(scripts.First())));
+                int count = ReaperScriptInstaller.Install();
+                _outdatedScripts.Clear();
+                SetInstallMessage(count + " script(s) copied to " + ReaperScriptInstaller.InstalledFolder + ". Now run RegisterScripts.lua once in REAPER (see below).", MessageType.Info);
+                EditorUtility.RevealInFinder(Directory.GetFiles(ReaperScriptInstaller.InstalledFolder, "*.lua").FirstOrDefault() ?? ReaperScriptInstaller.InstalledFolder);
             }
             catch (Exception e)
             {
-                SetInstallMessage("Could not copy the scripts: " + e.Message, MessageType.Error);
+                SetInstallMessage("Could not copy the scripts: " + e.Message, e is DirectoryNotFoundException ? MessageType.Warning : MessageType.Error);
+            }
+        }
+
+        // Updates the scripts installed in REAPER when they differ from the package's (same files, so the command IDs don't change).
+        private void UpdateOutdatedScripts()
+        {
+            System.Collections.Generic.List<string> outdated = ReaperScriptInstaller.OutdatedScripts();
+            if (outdated.Count == 0) return;
+            try
+            {
+                ReaperScriptInstaller.Install();
+                _outdatedScripts.Clear();
+                string message = "Updated the scripts installed in REAPER: " + string.Join(", ", outdated) + ".";
+                Debug.Log("AsioAudioUnity: " + message);
+                SetInstallMessage(message, MessageType.Info);
+            }
+            catch (Exception e)
+            {
+                SetInstallMessage("Could not update the scripts installed in REAPER: " + e.Message, MessageType.Error);
             }
         }
 

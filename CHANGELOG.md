@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Set Up REAPER Tracks** no longer routes the tracks it creates to REAPER's master track (*Master send* off): they only feed Spat Revolution, through the Spat Revolution Send plugin, so their dry sound isn't heard along with the spatialised one. Running it again also turns the master send off on the tracks it created before.
+
+### Added
+
+- **Outdated REAPER scripts**: REAPER runs the copies of the Lua scripts installed by *Install into REAPER*. When they differ from the package's (after a package update), the REAPER Controller's Inspector and the Setup Check say so, with an **Update** button, and *Set Up REAPER Tracks* updates them by itself before running. The command IDs don't change.
+
 ## [4.0.0] - 2026-11-19
 
 ### Added

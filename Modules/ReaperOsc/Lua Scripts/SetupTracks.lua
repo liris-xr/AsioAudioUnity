@@ -2,8 +2,9 @@
 --
 -- Creates or updates one REAPER track per ASIO Audio Source of the Unity scene: named like the source (after its Spat source number,
 -- e.g. "3 · Violin", with the REAPER Controller's Number Track Names), with its ReaRoute input
--- (ReaRoute 3 for output channel 3), armed with input monitoring (and set not to record files), and with the Spat Revolution Send plugin
--- with Local Audio Path enabled.
+-- (ReaRoute 3 for output channel 3), armed with input monitoring (and set not to record files), not sent to the master track
+-- (the tracks only feed Spat Revolution, so their dry sound isn't heard along with the spatialised one), and with the Spat Revolution
+-- Send plugin with Local Audio Path enabled.
 -- The REAPER Controller's "Set Up REAPER Tracks" button writes the list to %APPDATA%\AsioAudioUnity\SetupTracks.txt
 -- ("channel,channelCount,number,name|..."; number: the Spat source number, 0 for none), then runs this script over OSC
 -- (/action/<this script's command ID> "file"). The older "channel,channelCount,name|..." format is read too.
@@ -146,6 +147,7 @@ local function setUpTrack(channel, name, input, stereo)
     reaper.SetMediaTrackInfo_Value(track, "I_RECARM", 1)  -- armed
     reaper.SetMediaTrackInfo_Value(track, "I_RECMON", 1)  -- input monitoring on
     reaper.SetMediaTrackInfo_Value(track, "I_RECMODE", 2) -- record: none (monitoring only, no file is recorded)
+    reaper.SetMediaTrackInfo_Value(track, "B_MAINSEND", 0) -- no master send: the track only feeds Spat Revolution
 
     setUpSpatSend(track)
 end
